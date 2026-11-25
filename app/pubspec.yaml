@@ -67,6 +67,8 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   uses-material-design: true
+  shaders:
+    - shaders/aurora.frag
   assets:
     - assets/fixtures/
     - assets/sounds/
