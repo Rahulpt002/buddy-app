@@ -240,6 +240,7 @@ Client times out after 10 s (speedtest: 90 s).
 | `media.play_pause` / `media.next` / `media.prev` | – | |
 | `media.seek` | `position_ms` | |
 | `shortcut.run` | `id` | must be in the tile catalog; anything else → `forbidden` |
+| `shortcut.run` `{id:"phone.watch"}` | – | macOS: finds the browser's video (YouTube tab that's playing, else the visible one, else the front tab), pauses it and returns `{message, open_url}`; the app opens `open_url` on the phone (YouTube links in the YouTube app at `t=`). Any action result with `open_url` is opened by the app |
 | `speedtest.run` | – | streams `prog`, final `res` carries result; also updates `network` topic |
 | `slack.read` | `id` \| `channel_id` \| `all: true` | marks messages read; updates the `slack` topic |
 | `slack.open` | `channel_id` | opens `slack://channel?id=…` on the laptop and marks that conversation read; id validated `[A-Z0-9]+` |

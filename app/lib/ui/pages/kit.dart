@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/conn/controller.dart';
 import '../../core/data/topics.dart';
 import '../../core/pages.dart';
+import '../../core/platform/open_url.dart';
 import '../../core/proto/models.dart';
 import '../../core/settings.dart';
 import '../fmt.dart';
@@ -47,6 +48,11 @@ Future<ActionResult> act(BuildContext context, WidgetRef ref, String action,
     toast(context, ok);
   } else if (action == 'shortcut.run' && r.result['message'] is String) {
     toast(context, r.result['message'] as String); // e.g. "Microphone muted", "Saved DeskPanel … .png"
+  }
+  // "Watch on phone" (and any future action): the laptop hands the phone a link to open.
+  final url = r.ok ? r.result['open_url'] : null;
+  if (url is String && !await openOnPhone(url) && context.mounted) {
+    toast(context, "Couldn't open it on the phone (no app for that link)");
   }
   return r;
 }

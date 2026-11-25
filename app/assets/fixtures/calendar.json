@@ -5,8 +5,8 @@
     {
       "id": "mock-0",
       "title": "Team standup",
-      "start": 1795516500000,
-      "end": 1795517400000,
+      "start": 1795596900000,
+      "end": 1795597800000,
       "all_day": false,
       "location": "Zoom",
       "calendar": "Work",
@@ -15,8 +15,8 @@
     {
       "id": "mock-1",
       "title": "Lunch with Sam",
-      "start": 1795527000000,
-      "end": 1795530600000,
+      "start": 1795607400000,
+      "end": 1795611000000,
       "all_day": false,
       "location": "Corner Cafe",
       "calendar": "Personal",
@@ -25,8 +25,8 @@
     {
       "id": "mock-2",
       "title": "Design review",
-      "start": 1795538100000,
-      "end": 1795540800000,
+      "start": 1795618500000,
+      "end": 1795621200000,
       "all_day": false,
       "location": "Google Meet",
       "calendar": "Work",

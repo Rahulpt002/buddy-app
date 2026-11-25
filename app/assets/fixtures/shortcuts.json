@@ -81,6 +81,16 @@
         "active": false,
         "detail": null
       }
+    },
+    {
+      "id": "phone.watch",
+      "label": "Watch on phone",
+      "icon": "play",
+      "color": "#F2A7A7",
+      "state": {
+        "active": false,
+        "detail": null
+      }
     }
   ],
   "volume_pct": 40

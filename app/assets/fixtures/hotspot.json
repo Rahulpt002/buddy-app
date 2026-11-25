@@ -4,8 +4,8 @@
   "name": "Roof phone",
   "model": "samsung SM-M526B \u00b7 Android 14",
   "online": true,
-  "last_seen": 1795525645798,
-  "updated": 1795525637798,
+  "last_seen": 1795606094017,
+  "updated": 1795606086017,
   "internet": true,
   "down_since": null,
   "net_type": "5G NSA",
@@ -45,53 +45,53 @@
   "boot_reason": "watchdog",
   "events": [
     {
-      "ts": 1795525417798,
+      "ts": 1795605866017,
       "kind": "connectivity",
       "severity": "info",
       "message": "Internet back after 42 s"
     },
     {
-      "ts": 1795525357798,
+      "ts": 1795605806017,
       "kind": "watchdog_action",
       "severity": "warning",
       "message": "Watchdog: mobile data cycled, internet recovered"
     },
     {
-      "ts": 1795523377798,
+      "ts": 1795603826017,
       "kind": "cell_change",
       "severity": "info",
       "message": "Serving cell changed: PCI 211 to 87 (B40)"
     },
     {
-      "ts": 1795519957798,
+      "ts": 1795600406017,
       "kind": "temp_normal",
       "severity": "info",
       "message": "Battery back to 36 \u00b0C"
     },
     {
-      "ts": 1795517857798,
+      "ts": 1795598306017,
       "kind": "temp_warning",
       "severity": "warning",
       "message": "Battery at 41 \u00b0C"
     },
     {
-      "ts": 1795507657798,
+      "ts": 1795588106017,
       "kind": "charging_resumed",
       "severity": "info",
       "message": "Charging resumed (below 75%)"
     },
     {
-      "ts": 1795482457798,
+      "ts": 1795562906017,
       "kind": "boot",
       "severity": "info",
       "message": "Phone booted (boot #214, reason: watchdog)"
     },
     {
-      "ts": 1795439257798,
+      "ts": 1795519706017,
       "kind": "agent_start",
       "severity": "info",
       "message": "Agent started after boot"
     }
   ],
-  "session_expires": 1797340057798
+  "session_expires": 1797420506017
 }

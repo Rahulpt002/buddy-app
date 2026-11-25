@@ -255,6 +255,15 @@ the keyboard stays on the Mac. The agent needs **Accessibility** permission for 
 runs it (System Settings → Privacy & Security → Accessibility → Remote Trackpad, or Terminal
 when run by hand); the setting shows an error if it's missing.
 
+### Watch on phone
+The **Watch on phone** shortcut tile sends what's open in the Mac's browser to the phone, which
+plays it itself at full quality: a YouTube video opens in the phone's YouTube app at the same
+moment (and pauses on the Mac); any other page opens in the phone's browser. Works with Chrome,
+Safari, Arc, Brave and Edge. The first time, macOS asks to let Remote Trackpad control the
+browser (Automation). For the same moment and the pause, turn on **Allow JavaScript from Apple
+Events** once (Chrome: **View → Developer**; Safari: **Develop** menu); without it the video
+starts from the beginning.
+
 ## 9. Running at login
 
 **Recommended: inside Remote Trackpad.** Remote Trackpad (`~/Downloads/trackpad mac`) already starts at

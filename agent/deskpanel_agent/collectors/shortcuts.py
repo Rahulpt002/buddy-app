@@ -104,13 +104,15 @@ class ShortcutsCollector(BaseProvider):
         self.custom = {c.id: c for c in custom if c.id not in {t.id for t in BUILTIN_TILES}}
         self.audio: AudioState | None = None
         self.actions = {"shortcut.run": self.run_tile}
+        # "Watch on phone" reads the Mac's browser (AppleScript), so only with the Mac backend.
+        self._browser = isinstance(self.backend, MacShortcuts)
         self._kick = asyncio.Event()
 
     def tiles(self) -> list[Tile]:
         a = self.audio
         out = []
         for t in BUILTIN_TILES:
-            if t.id not in self.backend.supported:
+            if t.id not in self.backend.supported and not (t.id == "phone.watch" and self._browser):
                 continue
             t = t.model_copy(deep=True)
             if t.id == "mic.toggle":
@@ -137,6 +139,8 @@ class ShortcutsCollector(BaseProvider):
         tid = params.get("id")
         if not isinstance(tid, str):
             raise ActionError("bad_request", "id required")
+        if tid == "phone.watch" and self._browser:
+            return await self._watch_on_phone()
         if tid in self.custom:
             c = self.custom[tid]
             rc, out = await run_cmd(*c.command, timeout=20)
@@ -149,3 +153,21 @@ class ShortcutsCollector(BaseProvider):
             raise ActionError("forbidden", f"{tid!r} is not an allowed shortcut")
         self._kick.set()
         return {"message": msg}
+
+    async def _watch_on_phone(self) -> dict:
+        """Find the Mac browser's video/page; the phone opens `open_url` itself."""
+        from ..browser_tab import find_for_phone, fmt_time
+
+        try:
+            r = await find_for_phone()
+        except PermissionError as e:
+            raise ActionError("failed", str(e)) from None
+        except LookupError as e:
+            raise ActionError("failed", str(e)) from None
+        title = r.get("title") or "the page"
+        at = f" from {fmt_time(r['position_s'])}" if r.get("position_s") else ""
+        msg = f"Playing “{title}” on the phone{at}"
+        if r.get("hint"):
+            msg += ". " + r["hint"]
+        log.info("phone.watch: sent a %s link to the phone", "YouTube" if "youtu" in r["open_url"] else "web")
+        return {"message": msg, "open_url": r["open_url"]}
