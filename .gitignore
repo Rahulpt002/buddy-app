@@ -1,0 +1,10 @@
+.DS_Store
+# agent
+agent/.venv/
+agent/*.egg-info/
+__pycache__/
+.pytest_cache/
+# app (Flutter keeps its own app/.gitignore)
+# never commit pairing secrets if someone copies them in
+pairing.json
+tls_key.pem

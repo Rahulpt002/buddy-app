@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeskPanel concept 2: Glow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..500,0..100&family=Manrope:wght@400;500;600;700&display=swap">
+<style>
+/* ---------- Page chrome (outside the device) ---------- */
+:root {
+  --pg-bg: #E9EAEC; --pg-ink: #18191C; --pg-muted: #5D6168; --pg-line: #D2D4D8; --pg-chip: #FFFFFF; --pg-chip-on: #18191C; --pg-chip-on-ink: #FFFFFF;
+  color-scheme: light;
+  box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+html { height: 100%; }
+body { margin: 0; min-height: 100%; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--pg-bg); color: var(--pg-ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.pg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 14px 22px 4px; }
+.pg-head h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.pg-head h1 small { font-weight: 450; color: var(--pg-muted); margin-left: 6px; font-size: 14px; }
+.pg-head p { margin: 0; color: var(--pg-muted); max-width: 70ch; flex: 1 1 340px; }
+.pg-sizes { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--pg-line); border-radius: 999px; background: var(--pg-chip); }
+.pg-sizes button { font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 5px 12px; background: transparent; color: var(--pg-ink); cursor: pointer; }
+.pg-sizes button[aria-pressed="true"] { background: var(--pg-chip-on); color: var(--pg-chip-on-ink); }
+.pg-sizes button:focus-visible { outline: 2px solid var(--pg-ink); outline-offset: 2px; }
+#stage { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px 12px; }
+#device-wrap { position: relative; flex: none; }
+#device { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 11px; border-radius: 36px; background: #060607;
+  box-shadow: 0 0 0 1.5px #2C2D31, 0 30px 70px -30px rgba(0,0,0,.55); }
+.pg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 6px 22px 16px; color: var(--pg-muted); font-size: 12.5px; }
+.pg-foot .sw { display: inline-flex; align-items: center; gap: 6px; }
+.pg-foot .sw i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.pg-foot .swatches { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pg-foot b { color: var(--pg-ink); font-weight: 600; }
+
+/* ---------- Device screen base (shared by all concepts) ---------- */
+#screen { position: relative; overflow: hidden; border-radius: 25px; isolation: isolate; -webkit-font-smoothing: antialiased; }
+#screen *, #screen *::before, #screen *::after { box-sizing: border-box; }
+:where(#screen) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: inherit; }
+:where(#screen) [role="button"] { cursor: pointer; }
+:where(#screen) :is(h1, h2, h3, p) { margin: 0; }
+:where(#screen) .ic { width: 1em; height: 1em; flex: none; display: block; }
+:where(#screen) .art { display: block; width: 100%; height: 100%; }
+:where(#screen) .num { font-variant-numeric: tabular-nums; }
+:where(#screen) .offline-banner { display: none; position: absolute; z-index: 20; }
+:where(#screen[data-conn="off"]) .offline-banner { display: block; }
+:where(#screen) .toast { position: absolute; z-index: 30; left: 50%; bottom: 16px; transform: translate(-50%, 0); white-space: nowrap; animation: toastIn .22s ease-out; }
+:where(#screen) .toast.out { opacity: 0; transform: translate(-50%, 6px); transition: opacity .3s, transform .3s; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { #screen *, #screen *::before, #screen *::after { transition: none !important; animation: none !important; } }
+
+/* ---------- Concept styles ---------- */
+/* Concept 2 — Glow: the screen as a light in the corner of your eye.
+   One giant number per page, soft hue that carries meaning, no boxes. */
+@property --h { syntax: "<number>"; inherits: true; initial-value: 250; }
+@property --ga { syntax: "<number>"; inherits: true; initial-value: .35; }
+.glow {
+  --base: #0A0D1C; --tx: #F4EFE6; --mu: rgba(244,239,230,.6); --fa: rgba(244,239,230,.34); --rule: rgba(244,239,230,.11);
+  --h: 250; --ga: .34; --gx: 22%; --gy: 40%;
+  --hue: hsl(var(--h) 90% 72%); --focus: var(--hue);
+  --serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  background: var(--base); color: var(--tx); font: 500 13px/1.4 "Manrope", system-ui, sans-serif;
+  transition: --h 1.1s ease, --ga 1.1s ease;
+}
+.glow::before { content: ""; position: absolute; inset: -20%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 60% at var(--gx) var(--gy), hsl(var(--h) 85% 55% / var(--ga)), transparent 72%),
+    radial-gradient(60% 50% at 85% 110%, hsl(calc(var(--h) + 40) 70% 45% / calc(var(--ga) * .45)), transparent 70%);
+  filter: blur(8px); transition: background-position 1s; }
+.glow[data-page="system"] { --h: 178; --gx: 30%; --gy: 70%; }
+.glow[data-page="claude"] { --h: 16; --gx: 18%; --gy: 45%; }
+.glow[data-page="calendar"] { --h: 272; }
+.glow[data-page="weather"] { --h: 208; --gx: 20%; --gy: 32%; }
+.glow[data-page="printer"] { --h: 36; --gx: 20%; --gy: 50%; }
+.glow[data-page="timer"] { --h: 345; --gx: 50%; --gy: 50%; --ga: .3; }
+.glow[data-page="github"] { --h: 138; --gx: 15%; --gy: 30%; --ga: .28; }
+.glow[data-page="shortcuts"] { --h: 225; --gx: 50%; --gy: 60%; --ga: .18; }
+.glow[data-conn="off"] { --h: 0; --ga: .16; }
+
+.glow .gw { display: grid; grid-template-rows: 1fr auto; height: 100%; }
+.glow .view { padding: 22px 30px 4px; min-height: 0; overflow: auto; scrollbar-width: none; }
+.glow .serif { font-family: var(--serif); font-weight: 300; font-variation-settings: "opsz" 144, "SOFT" 60; letter-spacing: -.02em; font-variant-numeric: lining-nums tabular-nums; }
+.glow .mu { color: var(--mu); } .glow .fa { color: var(--fa); }
+.glow .lbl { color: var(--mu); font-size: 12.5px; font-weight: 600; }
+.glow .hue { color: var(--hue); }
+.glow .row { display: flex; align-items: center; gap: 8px; }
+.glow .sp { flex: 1; }
+.glow .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.glow .line { height: 2px; background: var(--rule); border-radius: 2px; position: relative; }
+.glow .line i { position: absolute; inset: 0 auto 0 0; width: calc(var(--p, 0) * 100%); background: var(--c, var(--hue)); border-radius: inherit; box-shadow: 0 0 10px var(--c, var(--hue)); transition: width .6s ease; }
+.glow .split { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; height: 100%; min-height: 0; }
+.glow .col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.glow .ruled { border-left: 1px solid var(--rule); padding-left: 30px; }
+.glow .pill { display: inline-flex; align-items: center; gap: 8px; padding: 9px 20px; border-radius: 99px; background: var(--tx); color: var(--base); font-weight: 700; font-size: 13px; }
+.glow .pill.ghost { background: transparent; color: var(--tx); box-shadow: inset 0 0 0 1px rgba(244,239,230,.3); }
+.glow .pill[disabled] { opacity: .55; }
+.glow .tabs { display: flex; gap: 20px; margin-bottom: 14px; }
+.glow .tabs button { font-size: 13px; font-weight: 600; color: var(--fa); padding-bottom: 4px; border-bottom: 1.5px solid transparent; }
+.glow .tabs button[aria-pressed="true"] { color: var(--tx); border-color: var(--hue); }
+
+/* Nav: words, not icons */
+.glow .bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 26px 12px 30px; }
+.glow .nav { display: flex; align-items: center; gap: clamp(11px, 1.6vw, 22px); flex-wrap: nowrap; }
+.glow .nav button { position: relative; font-size: 12.5px; font-weight: 600; color: var(--fa); padding: 4px 1px; transition: color .2s; }
+.glow .nav button:hover { color: var(--mu); }
+.glow .nav button[aria-current="page"] { color: var(--tx); }
+.glow .nav button[aria-current="page"]::before { content: ""; position: absolute; left: 50%; top: -5px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--hue); box-shadow: 0 0 8px 2px var(--hue); }
+.glow .status { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--mu); padding: 4px 2px; white-space: nowrap; }
+.glow .status i { width: 7px; height: 7px; border-radius: 50%; background: #7CE3A8; box-shadow: 0 0 8px #7CE3A8; }
+.glow[data-conn="off"] .status i { background: #FF8A8A; box-shadow: 0 0 8px #FF8A8A; }
+.glow .status .ck { color: var(--tx); }
+.glow[data-page="home"] .status .ck, .glow[data-page="timer"] .status .ck { display: none; }
+
+/* Home */
+.glow .bigclock { font-size: 156px; line-height: .82; margin-top: 18px; }
+.glow .bigclock small { font-size: 28px; color: var(--mu); letter-spacing: 0; margin-left: 8px; font-family: "Manrope"; font-weight: 600; }
+.glow .glances { display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 100%; }
+.glow .gl { display: grid; grid-template-columns: 22px 1fr auto; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--rule); text-align: left; }
+.glow .gl:last-child { border: 0; }
+.glow .gl > .ic { font-size: 19px; color: var(--mu); }
+.glow .gl b { display: block; font-size: 15px; font-weight: 600; }
+.glow .gl span.mu { font-size: 12.5px; }
+.glow .mini-play { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; box-shadow: inset 0 0 0 1px rgba(244,239,230,.3); }
+
+/* System */
+.glow .quad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.glow .metric .n { font-size: 66px; line-height: .9; margin: 4px 0 10px; }
+.glow .metric .n small { font-size: 20px; color: var(--mu); margin-left: 2px; font-family: "Manrope"; font-weight: 600; letter-spacing: 0; }
+.glow .metric .mu { font-size: 12px; margin-top: 8px; }
+.glow .chart { flex: 1; min-height: 50px; margin-top: 14px; }
+.glow .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.glow .sysfoot { display: flex; justify-content: space-between; color: var(--fa); font-size: 12px; padding-bottom: 4px; }
+.glow .net { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 0; }
+.glow .net > div { padding-right: 24px; }
+.glow .net > div + div { border-left: 1px solid var(--rule); padding-left: 24px; }
+.glow .huge { font-size: 92px; line-height: .85; }
+.glow .huge small { font-size: 22px; font-family: "Manrope"; font-weight: 600; color: var(--mu); letter-spacing: 0; margin-left: 4px; }
+.glow .mid { font-size: 40px; line-height: 1; }
+.glow .mid small { font-size: 14px; font-family: "Manrope"; font-weight: 600; color: var(--mu); letter-spacing: 0; margin-left: 3px; }
+.glow .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7CE3A8; box-shadow: 0 0 10px #7CE3A8; margin-right: 10px; vertical-align: middle; }
+
+/* Claude */
+.glow .cl-n { font-size: 150px; line-height: .8; margin: 14px 0 16px; }
+.glow .cl-n small { font-size: 40px; color: var(--mu); }
+.glow .kv { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 6px 16px; }
+.glow .kv b { display: block; font-family: var(--serif); font-weight: 400; font-size: 24px; font-variation-settings: "opsz" 72; }
+.glow .kv span { font-size: 11.5px; color: var(--mu); }
+.glow .bars { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; min-height: 0; margin: 12px 0 4px; }
+.glow .bars div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; font-size: 11px; color: var(--fa); }
+.glow .bars i { width: 8px; border-radius: 8px; height: calc(var(--v) * 1%); min-height: 4px; background: linear-gradient(hsl(16 95% 72%), hsl(16 70% 45% / .5)); }
+.glow .bars .today { color: var(--tx); font-weight: 700; }
+.glow .bars .today i { width: 12px; box-shadow: 0 0 14px hsl(16 95% 65% / .8); }
+.glow .models { display: flex; gap: 22px; font-size: 12.5px; color: var(--mu); }
+.glow .models b { color: var(--tx); font-weight: 600; margin-right: 6px; }
+
+/* Calendar */
+.glow .ev-t { font-size: 46px; line-height: 1; margin: 12px 0 10px; }
+.glow .ev-in { font-size: 24px; font-family: var(--serif); font-weight: 400; font-style: italic; }
+.glow .later { margin-top: auto; display: grid; gap: 7px; font-size: 12.5px; }
+.glow .later div { display: grid; grid-template-columns: 90px 1fr; gap: 10px; color: var(--mu); }
+.glow .later b { color: var(--tx); font-weight: 600; }
+.glow .tl { position: relative; height: 100%; margin-left: 46px; border-left: 1px solid var(--rule); }
+.glow .tl .hr { position: absolute; left: -46px; width: 38px; text-align: right; font-size: 11px; color: var(--fa); transform: translateY(-50%); }
+.glow .tl .blk { position: absolute; left: 14px; right: 0; border-radius: 10px; padding: 0 12px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; min-height: 26px;
+  background: color-mix(in srgb, var(--c) 18%, transparent); box-shadow: inset 3px 0 0 var(--c); }
+.glow .tl .blk b { font-weight: 600; }
+.glow .tl .blk span { color: var(--mu); }
+.glow .tl .blk.done { opacity: .45; }
+.glow .tl .now { position: absolute; left: -4px; right: 0; height: 1.5px; background: var(--hue); box-shadow: 0 0 8px var(--hue); }
+.glow .tl .now::before { content: ""; position: absolute; left: -1px; top: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--hue); }
+
+/* Weather */
+.glow .wx-top { display: grid; grid-template-columns: 1fr 1.05fr; gap: 34px; height: 58%; min-height: 0; flex: none; }
+.glow .wx-n { font-size: 132px; line-height: .8; margin-top: 8px; }
+.glow .wx-days { display: grid; gap: 3px; align-content: center; }
+.glow .wx-days div { display: grid; grid-template-columns: 50px 22px 38px 28px 1fr 28px; gap: 10px; align-items: center; font-size: 13px; }
+.glow .wx-days .ic { font-size: 17px; color: var(--mu); }
+.glow .wx-days em { font-style: normal; font-size: 11.5px; color: hsl(205 90% 75%); }
+.glow .rng { height: 4px; border-radius: 4px; background: var(--rule); position: relative; }
+.glow .rng i { position: absolute; top: 0; bottom: 0; left: calc(var(--a) * 1%); right: calc(100% - var(--b) * 1%); border-radius: 4px; background: linear-gradient(90deg, hsl(200 80% 70%), hsl(40 95% 68%)); }
+.glow .curve { flex: 1; min-height: 0; margin-top: 8px; }
+.glow .curve svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.glow .curve text { font: 600 11px "Manrope"; fill: var(--mu); }
+.glow .curve text.t { font: 400 15px var(--serif); fill: var(--tx); }
+
+/* Music */
+.glow .mus { display: grid; grid-template-columns: auto 1fr; gap: 36px; align-items: center; height: 100%; }
+.glow .cover { position: relative; height: min(96%, 300px); aspect-ratio: 1; }
+.glow .cover .art { border-radius: 18px; position: relative; z-index: 1; }
+.glow .cover .blur { position: absolute; inset: 8%; filter: blur(34px) saturate(1.4); opacity: .9; z-index: 0; }
+.glow .mus h2 { font-family: var(--serif); font-weight: 400; font-size: 42px; line-height: 1.02; letter-spacing: -.02em; margin: 8px 0 8px; font-variation-settings: "opsz" 96, "SOFT" 60; }
+.glow .seek { padding: 10px 0; cursor: pointer; margin-top: 22px; }
+.glow .times { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--mu); font-variant-numeric: tabular-nums; }
+.glow .ctrls { display: flex; align-items: center; gap: 26px; margin-top: 18px; }
+.glow .ctrls button { font-size: 20px; color: var(--mu); }
+.glow .ctrls .main { width: 64px; height: 64px; border-radius: 50%; background: var(--tx); color: var(--base); display: grid; place-items: center; font-size: 24px; }
+
+/* Printer */
+.glow .pr-n { font-size: 150px; line-height: .8; margin: 10px 0 14px; }
+.glow .pr-n small { font-size: 40px; color: var(--mu); }
+.glow .temps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.glow .temps b { display: block; font: 300 44px/1 var(--serif); font-variation-settings: "opsz" 144, "SOFT" 60; margin: 4px 0 2px; }
+.glow .spools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: auto; font-size: 12px; color: var(--mu); }
+.glow .spools i { display: block; width: 26px; height: 26px; border-radius: 50%; background: var(--c); margin-bottom: 6px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.glow .spools .on { color: var(--tx); font-weight: 700; }
+.glow .spools .on i { box-shadow: 0 0 0 3px var(--base), 0 0 0 4.5px var(--hue), 0 0 14px var(--hue); }
+.glow .layers { margin-top: 16px; height: 18px; position: relative; background: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 6px); }
+.glow .layers i { position: absolute; inset: 0 auto 0 0; width: calc(var(--p) * 100%); background: repeating-linear-gradient(90deg, var(--hue) 0 1.5px, transparent 1.5px 6px); filter: drop-shadow(0 0 4px var(--hue)); }
+
+/* Timer */
+.glow .tm { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }
+.glow .tm-n { font-size: 172px; line-height: .82; margin: 12px 0 18px; }
+.glow .tm .line { width: 60%; }
+.glow .tm .row { margin-top: 20px; gap: 12px; }
+
+/* Games */
+.glow .gm-top { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; height: 56%; min-height: 0; }
+.glow .gm-art { position: relative; min-height: 0; }
+.glow .gm-art .art { border-radius: 16px; position: relative; z-index: 1; }
+.glow .gm-art .blur { position: absolute; inset: 10%; filter: blur(30px); opacity: .8; }
+.glow .gm-top h2 { font-family: var(--serif); font-weight: 400; font-size: 38px; line-height: 1; margin: 8px 0 10px; letter-spacing: -.02em; }
+.glow .shelf { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; height: 44%; padding-top: 16px; }
+.glow .shelf button { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; text-align: left; }
+.glow .shelf .im { height: 72px; border-radius: 9px; overflow: hidden; }
+.glow .shelf b { display: block; font-size: 13px; font-weight: 600; }
+.glow .shelf span { font-size: 12px; color: var(--mu); }
+
+/* GitHub */
+.glow .gh-top { display: grid; grid-template-columns: .8fr 1fr 1fr; gap: 0; height: 56%; min-height: 0; flex: none; }
+.glow .gh-top > div { padding-right: 24px; display: flex; flex-direction: column; min-height: 0; }
+.glow .gh-top > div + div { border-left: 1px solid var(--rule); padding-left: 24px; }
+.glow .streak { font-size: 120px; line-height: .8; margin: 10px 0 10px; }
+.glow .wk { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; min-height: 0; margin-top: 8px; }
+.glow .wk div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; height: 100%; font-size: 10.5px; color: var(--fa); }
+.glow .wk i { width: 7px; border-radius: 6px; height: calc(var(--v) * 1%); min-height: 3px; background: hsl(138 70% 62%); box-shadow: 0 0 10px hsl(138 80% 50% / .5); }
+.glow .wk i.l { background: var(--rule); box-shadow: none; }
+.glow .wk .pr { display: flex; flex-direction: row; gap: 2px; align-items: flex-end; flex: 1; }
+.glow .repos { display: grid; gap: 8px; margin-top: 8px; font-size: 13px; }
+.glow .repos div { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+.glow .repos .line { grid-column: 1 / -1; height: 1.5px; }
+.glow .heat { flex: 1; min-height: 0; margin-top: 14px; }
+.glow .heat svg { display: block; width: 100%; height: 100%; }
+.glow .heat text { font: 600 10px "Manrope"; fill: var(--fa); }
+
+/* Shortcuts */
+.glow .sc { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; height: 100%; }
+.glow .key { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 13.5px; font-weight: 600; color: var(--mu); border-radius: 20px; transition: background .2s, color .2s; }
+.glow .key:hover { background: rgba(244,239,230,.04); color: var(--tx); }
+.glow .key .ring { width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; color: var(--tx); box-shadow: inset 0 0 0 1px rgba(244,239,230,.2); transition: box-shadow .2s, background .2s; }
+.glow .key:active .ring { background: rgba(244,239,230,.1); }
+.glow .key.on { color: var(--tx); }
+.glow .key.on .ring { background: hsl(355 80% 62% / .18); box-shadow: inset 0 0 0 1px hsl(355 90% 70% / .7), 0 0 26px hsl(355 90% 60% / .45); color: hsl(355 95% 78%); }
+.glow .key small { font-size: 11.5px; color: var(--fa); margin-top: -8px; }
+
+/* Offline + toast */
+.glow .offline-banner { top: 14px; left: 30px; right: 30px; text-align: right; font-size: 12.5px; color: #FFC9C9; }
+.glow .offline-banner strong { color: #fff; }
+.glow[data-conn="off"] .view { opacity: .55; }
+.glow .toast { bottom: 52px; background: rgba(244,239,230,.14); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: var(--tx); padding: 9px 18px; border-radius: 99px; font-weight: 600; font-size: 13px; box-shadow: inset 0 0 0 1px rgba(244,239,230,.18); }
+
+</style>
+</head>
+<body>
+<header class="pg-head">
+  <h1>Concept 2: Glow <small>glanceable from across the desk</small></h1>
+  <p>The phone becomes a soft light in the corner of your eye. Each page leads with one large serif number, there are no boxes, and the background hue carries meaning: teal for system, coral for Claude (brighter as you near the limit), the album’s color for music, red when the laptop drops.</p>
+  <div class="pg-sizes" role="group" aria-label="Screen size">
+    <button type="button" data-size="phone" aria-pressed="true">Phone 915×412</button>
+    <button type="button" data-size="seven" aria-pressed="false">7-inch 1024×600</button>
+  </div>
+</header>
+<div id="stage"><div id="device-wrap"><div id="device"><div id="screen" class="glow"></div></div></div></div>
+<footer class="pg-foot">
+  <div class="swatches"><span class="sw"><i style="background:#0A0D1C"></i>Base #0A0D1C</span><span class="sw"><i style="background:#F4EFE6"></i>Text #F4EFE6</span><span class="sw"><i style="background:#4E2BEB"></i>Home glow #4E2BEB</span><span class="sw"><i style="background:#1EE3D0"></i>System #1EE3D0</span><span class="sw"><i style="background:#F26C3D"></i>Claude #F26C3D</span><span class="sw"><i style="background:#5CB6F5"></i>Weather #5CB6F5</span><span class="sw"><i style="background:#F5A35C"></i>Printer #F5A35C</span><span class="sw"><i style="background:#5CF58A"></i>GitHub #5CF58A</span></div>
+  <span><b>Type</b> Fraunces Light for numbers and titles, Manrope for everything else</span>
+  <span>Tap any icon to switch pages. Tap the connection icon to preview Wi‑Fi, USB and offline states.</span>
+</footer>
+<script>
+/* ============================================================
+   DeskPanel concept — shared core
+   Mock data, simulated clock, icons, chart helpers and the
+   app shell (navigation, live bindings, actions, scaling).
+   Every concept file uses this same core; only the
+   frame/nav/page renderers and CSS differ.
+   ============================================================ */
+(() => {
+'use strict';
+
+/* ---------- Simulated clock (fixed scene: Fri Nov 20, 8:35 AM) ---------- */
+const T0 = Date.now();
+const START = new Date(2026, 10, 20, 8, 35, 0);
+const now = () => new Date(START.getTime() + (Date.now() - T0));
+const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAY3 = DAY.map(d => d.slice(0, 3));
+const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON3 = MONTH.map(m => m.slice(0, 3));
+const pad = n => String(n).padStart(2, '0');
+const clock = d => (d.getHours() % 12 || 12) + ':' + pad(d.getMinutes());
+const ampm = d => d.getHours() < 12 ? 'AM' : 'PM';
+const dur = min => { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h ${m}m` : `${m}m`; };
+const ms = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + pad(s % 60); };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+const R = rng(42);
+
+/* ---------- Mock data ---------- */
+const hist = (n, base, amp, f) => Array.from({ length: n }, (_, i) => base + amp * Math.sin(i / f) + (R() - .5) * amp * .5);
+
+const D = {
+  sys: {
+    cpu: 30, gpu: 48, gpuTemp: 52, ram: 18.4, ramTotal: 32, vram: 6.2, vramTotal: 12,
+    down: 1.8, up: 220, cpuName: 'Ryzen 7 7800X3D', gpuName: 'GeForce RTX 4070', disk: 58,
+    cpuHist: hist(60, 30, 6, 4), gpuHist: hist(60, 48, 7, 5)
+  },
+  net: {
+    latency: 17, jitter: 2.1, loss: 0, uptime: '3d 5h', lastDrop: '3 days ago',
+    today: 3.2, month: 412.0, dl: 942, ul: 38, ping: 9, tested: '2h ago', nowDl: 15.1, nowUl: 1.8,
+    latHist: Array.from({ length: 120 }, (_, i) => 16 + R() * 3 + (i === 40 || i === 96 ? 14 : 0))
+  },
+  claude: {
+    five: 38, fiveReset: 132, week: 61, weekReset: 'Sat 2:01 PM',
+    tokens: '48.2M', output: '182K', messages: 214, lastHour: '6.1M',
+    days: [28.4, 6.9, 21.5, 55.3, 43.1, 62.0, 48.2],
+    models: [['Opus', 31.0], ['Sonnet', 15.1], ['Haiku', 2.1]]
+  },
+  cal: {
+    today: [
+      { start: '9:00 AM', end: '9:15 AM', mins: 540, title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { start: '12:30 PM', end: '1:30 PM', mins: 750, title: 'Lunch with Sam', where: 'Corner Cafe', cal: 'Personal', color: '#C18CFF' },
+      { start: '4:00 PM', end: '4:45 PM', mins: 960, title: 'Design review', where: 'Google Meet', cal: 'Work', color: '#5AA9FF' }
+    ],
+    later: [
+      { day: 'Saturday', start: '10:00 AM', title: 'Filament pickup', where: 'Maker Supply Co.', cal: 'Personal', color: '#C18CFF' },
+      { day: 'Monday', start: '9:00 AM', title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { day: 'Tuesday', start: '7:30 PM', title: 'Game night', where: 'Discord', cal: 'Personal', color: '#C18CFF' }
+    ]
+  },
+  wx: {
+    city: 'Charlotte', temp: 58, cond: 'Overcast', icon: 'cloud', feels: 53, humidity: 53, wind: 5, updated: '8:30 AM',
+    hours: [['Now', 58, 'cloud'], ['9 AM', 59, 'cloud'], ['10 AM', 61, 'cloud'], ['11 AM', 63, 'partly'], ['12 PM', 65, 'partly'],
+      ['1 PM', 67, 'sun'], ['2 PM', 68, 'sun'], ['3 PM', 69, 'sun'], ['4 PM', 67, 'partly'], ['5 PM', 64, 'cloud'], ['6 PM', 61, 'cloud'], ['7 PM', 57, 'cloud']],
+    days: [['Today', 'cloud', 69, 40, 0], ['Sat', 'rain', 61, 48, 63], ['Sun', 'rain', 57, 54, 54], ['Mon', 'rain', 68, 56, 38], ['Tue', 'cloud', 62, 50, 0], ['Wed', 'rain', 50, 43, 46]]
+  },
+  tracks: [
+    { title: 'Midnight City Lights', artist: 'Synth Dreams', album: 'Neon Skyline', len: 241, hue: 262 },
+    { title: 'Low Tide Radio', artist: 'Harbor Static', album: 'Salt & Signal', len: 214, hue: 196 },
+    { title: 'Paper Planets', artist: 'Juno Vale', album: 'Orbit Season', len: 192, hue: 28 },
+    { title: 'Afterglow Freeway', artist: 'The Night Shift', album: 'Overpass', len: 265, hue: 330 }
+  ],
+  printer: {
+    name: 'X1 Carbon', model: 'X1C', status: 'Printing', job: 'Desk_Organizer', speed: 'Standard',
+    pct: 47, left: 48, layer: 112, layers: 240, nozzle: 220, nozzleT: 220, bed: 55, bedT: 55, chamber: 34,
+    ams: [{ c: '#F1F1EE', t: 'PLA', n: 'White' }, { c: '#1D1E21', t: 'PLA', n: 'Black' }, { c: '#F5A623', t: 'PETG', n: 'Amber', active: true }, { c: '#3B82F6', t: 'PLA', n: 'Blue' }]
+  },
+  games: {
+    now: { title: 'Starfall Tactics', hue: 252, session: 48, total: 128, friends: 2 },
+    recent: [['Harbor Lights', 41, 205], ['Iron Orchard', 16, 95], ['Neon Drift', 12, 318], ['Frostline', 5.0, 205], ['Ember Keep', 75, 20]]
+  },
+  gh: {
+    total: '1,033', commits: 120, private: 907, issues: 1, streak: 5, longest: 10, best: 75, bestDay: 'Nov 16',
+    week: [0, 75, 68, 48, 58, 32, 0], lastWeek: [0, 28, 14, 20, 24, 10, 5], weekTotal: 281, delta: 180,
+    repos: [['pixel-garden', 222], ['tide-engine', 201], ['deskpanel', 111], ['lumen-notes', 88]]
+  },
+  shortcuts: [
+    { id: 'mic', label: 'Mute mic', icon: 'mic' }, { id: 'sound', label: 'Mute sound', icon: 'speaker' },
+    { id: 'voldown', label: 'Volume down', icon: 'volDown' }, { id: 'volup', label: 'Volume up', icon: 'volUp' },
+    { id: 'shot', label: 'Screenshot', icon: 'shot' }, { id: 'term', label: 'Terminal', icon: 'terminal' },
+    { id: 'dl', label: 'Downloads', icon: 'folder' }, { id: 'lock', label: 'Lock PC', icon: 'lock' }
+  ],
+  timerModes: [{ id: 'focus', label: 'Focus', min: 25 }, { id: 'short', label: 'Short break', min: 5 }, { id: 'long', label: 'Long break', min: 15 }]
+};
+
+/* 7-day labels ending today, GitHub heatmap (53 weeks ending this week) */
+(() => {
+  const t = START;
+  D.claude.labels = D.claude.days.map((_, i) => i === 6 ? 'Today' : DAY3[(t.getDay() - 6 + i + 7) % 7]);
+  const sat = new Date(t); sat.setDate(t.getDate() + (6 - t.getDay()));
+  const first = new Date(sat); first.setDate(sat.getDate() - 53 * 7 + 1);
+  const busy = { 5: .6, 6: .75, 7: .5, 9: .55, 10: .8, 11: .85, 1: .35, 2: .3, 3: .15, 4: .35, 8: .45, 0: .3 };
+  const r = rng(7); const weeks = []; const months = [];
+  for (let w = 0; w < 53; w++) {
+    const col = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(first); day.setDate(first.getDate() + w * 7 + d);
+      if (day > t) { col.push(null); continue; }
+      const p = busy[day.getMonth()] * (d === 0 || d === 6 ? .5 : 1);
+      col.push(r() < p ? Math.ceil(r() ** 2 * 22) : 0);
+    }
+    const ws = new Date(first); ws.setDate(first.getDate() + w * 7);
+    const prev = new Date(ws); prev.setDate(ws.getDate() - 7);
+    if (w > 0 && ws.getMonth() !== prev.getMonth() && w < 52) months.push({ i: w, label: MON3[ws.getMonth()] });
+    weeks.push(col);
+  }
+  weeks[52] = D.gh.week.map((v, i) => i > t.getDay() ? null : v);
+  weeks[51] = D.gh.lastWeek.slice();
+  D.gh.weeks = weeks; D.gh.months = months;
+})();
+
+/* ---------- Live state ---------- */
+const S = {
+  page: 'home', sysTab: 'pc', conn: 'wifi', size: 'phone',
+  track: 0, pos: 75, playing: true,
+  mic: false, sound: false, vol: 40,
+  tMode: 'focus', tLeft: 25 * 60, tRun: false, sessions: 2,
+  st: { running: false, p: 0, dl: 942, ul: 38, ping: 9, when: '2h ago' },
+  lastSync: null
+};
+
+/* ---------- Icons (24px, stroke = currentColor) ---------- */
+const P = {
+  home: '<path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6H9v6H4a.5.5 0 0 1-.5-.5z"/>',
+  system: '<path d="M3 16.5 8 11l4 3.5 4.5-6.5 4.5 4"/><path d="M3 20.5h18"/>',
+  claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  weather: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  printer: '<path d="M12 2.8 3.8 7.3v9.4l8.2 4.5 8.2-4.5V7.3z"/><path d="M3.8 7.3 12 11.8l8.2-4.5M12 11.8v9.4"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>',
+  games: '<path d="M7 7.5h10a4.5 4.5 0 0 1 4.5 4.5v2.5a3 3 0 0 1-5.4 1.8L15 15h-6l-1.1 1.3a3 3 0 0 1-5.4-1.8V12A4.5 4.5 0 0 1 7 7.5z"/><path d="M7.5 10.5v3.5M5.75 12.25h3.5"/><circle cx="16" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="18" cy="13.2" r=".9" fill="currentColor" stroke="none"/>',
+  github: '<circle cx="12" cy="12" r="3.5"/><path d="M2.5 12h6M15.5 12h6"/>',
+  shortcuts: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+  monitor: '<rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
+  wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 15.8a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19.3" r="1.1" fill="currentColor" stroke="none"/>',
+  usb: '<path d="M9 2.5v4.5M15 2.5v4.5M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5v5"/>',
+  off: '<path d="M2.5 9a14 14 0 0 1 4.2-2.8M10.5 5.6A14 14 0 0 1 21.5 9M8.7 15.8a5 5 0 0 1 6.6 0M3 3l18 18"/>',
+  cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.7 4.4 4.4 0 0 0 7 18.5z"/>',
+  partly: '<path d="M9.5 6.5V4.5M4.4 8.6l-1.4-1.4M14.6 8.6 16 7.2M3.5 13.5h-1"/><path d="M6.4 12.3a3.8 3.8 0 0 1 6.9-2.8"/><path d="M9 20h9a3.3 3.3 0 0 0 .5-6.55A5 5 0 0 0 8.8 12.7 3.7 3.7 0 0 0 9 20z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  rain: '<path d="M7 15h10.5a3.6 3.6 0 0 0 .5-7.15A5.5 5.5 0 0 0 7.4 7.2 3.9 3.9 0 0 0 7 15z"/><path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5v3.5"/>',
+  micOff: '<path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5.5 11a6.5 6.5 0 0 0 10.9 4.8M18.5 11c0 .7-.1 1.4-.3 2M12 17.5v3.5M3.5 3.5l17 17"/>',
+  speaker: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+  speakerOff: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>',
+  volDown: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5"/>',
+  volUp: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5M18 9.5v5"/>',
+  shot: '<path d="M4 8.5V5.5a1 1 0 0 1 1-1h3M16 4.5h3a1 1 0 0 1 1 1v3M20 15.5v3a1 1 0 0 1-1 1h-3M8 19.5H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2.5"/>',
+  terminal: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M7 9.5l2.8 2.5L7 14.5M12.5 15h4.5"/>',
+  folder: '<path d="M3 6.5a1 1 0 0 1 1-1h5l2 2.2h9a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  play: '<path d="M8 5.2v13.6L19 12z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/>',
+  prev: '<path d="M6 5.5v13"/><path d="M18.5 5.5 9 12l9.5 6.5z" fill="currentColor"/>',
+  next: '<path d="M18 5.5v13"/><path d="M5.5 5.5 15 12l-9.5 6.5z" fill="currentColor"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5M4 3.5v5h5"/>',
+  flame: '<path d="M12 3s5 4.3 5 9.3a5 5 0 0 1-10 0c0-2.8 2-3.9 2.3-6.3C10.8 7.3 12 3 12 3z"/>',
+  bed: '<path d="M12 4 2.5 8.5 12 13l9.5-4.5zM2.5 13 12 17.5l9.5-4.5"/>',
+  thermo: '<path d="M10 14.3V5a2 2 0 0 1 4 0v9.3a4 4 0 1 1-4 0z"/>',
+  down: '<path d="M12 4.5v15M6.5 14l5.5 5.5 5.5-5.5"/>',
+  up: '<path d="M12 19.5v-15M6.5 10 12 4.5l5.5 5.5"/>',
+  drop: '<path d="M12 3.5s6 6.3 6 10.5a6 6 0 0 1-12 0c0-4.2 6-10.5 6-10.5z"/>',
+  wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5M3 12.5h15a2.5 2.5 0 1 1-2.5 2.5M3 16.5h7"/>',
+  users: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14a6 6 0 0 1 3.5 5.5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  pin: '<path d="M12 21s6.5-6 6.5-11a6.5 6.5 0 0 0-13 0c0 5 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'
+};
+const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
+
+/* ---------- Generated cover art: sun over layered hills ---------- */
+let uid = 0;
+function art(hue, seed = 1, opts = {}) {
+  const id = 'a' + (++uid), W = opts.w || 100, k = W / 100;
+  const sx = (28 + (seed * 37) % 44) * k, sy = 30 + (seed * 13) % 14;
+  const sat = opts.sat ?? 58;
+  return `<svg class="art" viewBox="0 0 ${W} 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="hsl(${hue} ${sat}% 20%)"/><stop offset="1" stop-color="hsl(${hue + 18} ${sat + 8}% 44%)"/></linearGradient></defs>
+    <rect width="${W}" height="100" fill="url(#${id})"/>
+    <circle cx="${sx}" cy="${sy}" r="15" fill="hsl(44 96% 82%)"/>
+    <g transform="scale(${k} 1)"><path d="M0 64 C 22 55 42 70 66 60 S 100 56 100 56 V100 H0z" fill="hsl(${hue + 6} ${sat - 10}% 30%)"/>
+    <path d="M0 78 C 28 70 58 86 100 72 V100 H0z" fill="hsl(${hue} ${sat}% 15%)"/></g></svg>`;
+}
+
+/* ---------- Chart helpers ---------- */
+function linePath(vals, w, h, lo, hi, pad = 2) {
+  const n = vals.length, dx = w / (n - 1);
+  const y = v => pad + (h - 2 * pad) * (1 - (clamp(v, lo, hi) - lo) / (hi - lo));
+  let d = `M0 ${y(vals[0]).toFixed(1)}`;
+  for (let i = 1; i < n; i++) {
+    const x0 = (i - 1) * dx, x1 = i * dx, xm = (x0 + x1) / 2;
+    d += ` C${xm.toFixed(1)} ${y(vals[i - 1]).toFixed(1)} ${xm.toFixed(1)} ${y(vals[i]).toFixed(1)} ${x1.toFixed(1)} ${y(vals[i]).toFixed(1)}`;
+  }
+  return d;
+}
+function stepPath(vals, w, h, lo, hi) {
+  const n = vals.length, dx = w / n;
+  const y = v => (h * (1 - (clamp(v, lo, hi) - lo) / (hi - lo))).toFixed(1);
+  let d = `M0 ${y(vals[0])}`;
+  vals.forEach((v, i) => { d += ` H${(i * dx).toFixed(1)} V${y(v)}`; });
+  return d + ` H${w}`;
+}
+function arc(cx, cy, r, a0, a1) {
+  const p = a => [cx + r * Math.cos((a - 90) * Math.PI / 180), cy + r * Math.sin((a - 90) * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+const size = el => [Math.max(10, el.clientWidth), Math.max(10, el.clientHeight)];
+
+/* ---------- Derived values ---------- */
+const nowMin = () => { const d = now(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const nextEvent = () => D.cal.today.find(e => e.mins > nowMin()) || null;
+const elapsedMin = () => (now() - START) / 60000;
+const printerPct = () => clamp(D.printer.pct + elapsedMin() / D.printer.left * (100 - D.printer.pct), 0, 100);
+const printerLeft = () => Math.max(0, D.printer.left - elapsedMin());
+const doneAt = () => clock(new Date(now().getTime() + printerLeft() * 60000)) + ' ' + ampm(new Date(now().getTime() + printerLeft() * 60000));
+const track = () => D.tracks[S.track];
+const tMode = () => D.timerModes.find(m => m.id === S.tMode);
+const usageLevel = p => p < 50 ? 'ok' : p < 80 ? 'warn' : 'bad';
+
+/* ---------- Bindings: [data-b] text, [data-p] --p (0–1), [data-arc] dash offset ---------- */
+const B = {
+  clock: () => clock(now()), ampm: () => ampm(now()),
+  date: () => { const d = now(); return `${DAY[d.getDay()]}, ${MONTH[d.getMonth()]} ${d.getDate()}`; },
+  dateShort: () => { const d = now(); return `${DAY3[d.getDay()]} ${MON3[d.getMonth()]} ${d.getDate()}`; },
+  cpu: () => Math.round(D.sys.cpu), gpu: () => Math.round(D.sys.gpu), gpuTemp: () => Math.round(D.sys.gpuTemp),
+  ram: () => D.sys.ram.toFixed(1), ramPct: () => Math.round(D.sys.ram / D.sys.ramTotal * 100),
+  vram: () => D.sys.vram.toFixed(1), vramPct: () => Math.round(D.sys.vram / D.sys.vramTotal * 100),
+  down: () => D.sys.down.toFixed(1), up: () => Math.round(D.sys.up),
+  latency: () => Math.round(D.net.latency), jitter: () => D.net.jitter.toFixed(1),
+  nowDl: () => D.net.nowDl.toFixed(1), nowUl: () => D.net.nowUl.toFixed(1),
+  stDl: () => S.st.running ? Math.round(S.st.dl) : D.net.dl, stUl: () => S.st.running ? Math.round(S.st.ul) : D.net.ul,
+  stPing: () => S.st.ping, stWhen: () => S.st.running ? 'Testing now' : 'Tested ' + S.st.when,
+  stBtn: () => S.st.running ? 'Testing…' : 'Run test',
+  fiveReset: () => dur(D.claude.fiveReset - elapsedMin()),
+  nextTitle: () => nextEvent()?.title || 'Nothing else today',
+  nextIn: () => { const e = nextEvent(); if (!e) return 'Free until tomorrow'; const m = e.mins - nowMin(); return m < 1 ? 'Starting now' : `in ${dur(m)}`; },
+  nextWhen: () => { const e = nextEvent(); return e ? `${e.start}, ${e.where}` : ''; },
+  prPct: () => Math.floor(printerPct()), prLeft: () => dur(printerLeft()), prDone: () => doneAt(),
+  prLayer: () => Math.min(D.printer.layers, Math.round(D.printer.layer + (printerPct() - D.printer.pct) / 100 * D.printer.layers)),
+  trTitle: () => track().title, trArtist: () => track().artist, trAlbum: () => track().album,
+  trPos: () => ms(S.pos), trLen: () => ms(track().len), trLeft: () => '-' + ms(track().len - S.pos),
+  timer: () => ms(S.tLeft), tLabel: () => S.tRun ? 'Pause' : (S.tLeft < tMode().min * 60 ? 'Resume' : 'Start'),
+  conn: () => ({ wifi: 'Wi‑Fi', usb: 'USB', off: 'Offline' }[S.conn]),
+  connLong: () => ({ wifi: 'Laptop on Wi‑Fi', usb: 'Laptop on USB', off: 'Laptop offline' }[S.conn]),
+  vol: () => S.vol, gameSession: () => dur(D.games.now.session + elapsedMin())
+};
+const PB = {
+  cpu: () => D.sys.cpu / 100, gpu: () => D.sys.gpu / 100, ram: () => D.sys.ram / D.sys.ramTotal, vram: () => D.sys.vram / D.sys.vramTotal,
+  disk: () => D.sys.disk / 100, five: () => D.claude.five / 100, week: () => D.claude.week / 100,
+  printer: () => printerPct() / 100, music: () => S.pos / track().len, timer: () => 1 - S.tLeft / (tMode().min * 60),
+  st: () => S.st.running ? S.st.p : 1, vol: () => S.vol / 100, latency: () => D.net.latency / 50,
+  sessions: () => S.sessions / 4
+};
+
+/* ---------- Shell ---------- */
+let theme, screen, view, nav;
+const SIZES = { phone: [915, 412], seven: [1024, 600] };
+
+function refresh(root = screen) {
+  root.querySelectorAll('[data-b]').forEach(el => { const f = B[el.dataset.b]; if (f) { const v = String(f()); if (el.textContent !== v) el.textContent = v; } });
+  root.querySelectorAll('[data-p]').forEach(el => { const f = PB[el.dataset.p]; if (f) el.style.setProperty('--p', clamp(f(), 0, 1).toFixed(4)); });
+  root.querySelectorAll('[data-arc]').forEach(el => { const f = PB[el.dataset.arc]; if (f) { const p = clamp(f(), 0, 1); el.style.strokeDashoffset = (100 - p * 100).toFixed(2); el.style.opacity = p < .004 ? 0 : 1; } });
+  root.querySelectorAll('[data-c]').forEach(el => { const f = theme.charts?.[el.dataset.c]; if (f && el.clientWidth) el.innerHTML = f(el); });
+  theme.refresh?.();
+}
+function render() {
+  screen.dataset.page = S.page; screen.dataset.conn = S.conn;
+  nav.innerHTML = theme.nav();
+  view.innerHTML = theme.pages[S.page]();
+  requestAnimationFrame(() => refresh());
+  refresh();
+}
+function go(p) { S.page = p; render(); view.scrollTop = 0; }
+
+function toast(msg) {
+  screen.querySelector('.toast')?.remove();
+  const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  screen.appendChild(t); setTimeout(() => t.classList.add('out'), 1900); setTimeout(() => t.remove(), 2400);
+}
+
+function speedtest() {
+  if (S.st.running || S.conn === 'off') return;
+  S.st = { ...S.st, running: true, p: 0, dl: 0, ul: 0 }; render();
+  const iv = setInterval(() => {
+    S.st.p = Math.min(1, S.st.p + 0.03);
+    S.st.dl = S.st.p < .6 ? 920 * Math.min(1, S.st.p / .3) + (Math.random() - .5) * 60 : 936;
+    S.st.ul = S.st.p < .6 ? 0 : 38 * Math.min(1, (S.st.p - .6) / .25) + (Math.random() - .5) * 4;
+    if (S.st.p >= 1) { clearInterval(iv); D.net.dl = 936; D.net.ul = 39; S.st = { running: false, p: 1, dl: 936, ul: 39, ping: 8, when: 'just now' }; render(); toast('Speed test finished: 936 down, 39 up'); return; }
+    refresh();
+  }, 120);
+}
+
+const A = {
+  go: v => go(v),
+  tab: v => { S.sysTab = v; render(); },
+  play: () => { S.playing = !S.playing; render(); },
+  next: () => { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); },
+  prev: () => { if (S.pos > 5) S.pos = 0; else { S.track = (S.track - 1 + D.tracks.length) % D.tracks.length; S.pos = 0; } render(); },
+  seek: (v, e, el) => { const r = el.getBoundingClientRect(); S.pos = Math.round(clamp((e.clientX - r.left) / r.width, 0, 1) * track().len); refresh(); },
+  tStart: () => { S.tRun = !S.tRun; render(); },
+  tReset: () => { S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  tMode: v => { S.tMode = v; S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  speed: () => speedtest(),
+  game: v => toast(`Launching ${v} on your laptop`),
+  conn: () => { S.conn = { wifi: 'usb', usb: 'off', off: 'wifi' }[S.conn]; if (S.conn === 'off') S.lastSync = clock(now()) + ' ' + ampm(now()); render(); toast({ wifi: 'Connected over Wi‑Fi', usb: 'Connected over USB', off: 'Laptop disconnected' }[S.conn]); },
+  sc: v => {
+    if (S.conn === 'off') { toast('Connect your laptop to use shortcuts'); return; }
+    const m = {
+      mic: () => { S.mic = !S.mic; return S.mic ? 'Microphone muted' : 'Microphone on'; },
+      sound: () => { S.sound = !S.sound; return S.sound ? 'Sound muted' : 'Sound on'; },
+      voldown: () => { S.vol = Math.max(0, S.vol - 10); S.sound = false; return `Volume ${S.vol}%`; },
+      volup: () => { S.vol = Math.min(100, S.vol + 10); S.sound = false; return `Volume ${S.vol}%`; },
+      shot: () => 'Screenshot saved to Pictures', term: () => 'Terminal opened', dl: () => 'Downloads opened', lock: () => 'Laptop locked'
+    };
+    const msg = m[v](); render(); toast(msg);
+  }
+};
+
+function tick() {
+  const live = S.conn !== 'off';
+  if (live) {
+    const s = D.sys, w = (v, a, lo, hi) => clamp(v + (Math.random() - .5) * a, lo, hi);
+    s.cpu = w(s.cpu, 9, 12, 72); s.gpu = w(s.gpu, 8, 30, 80); s.gpuTemp = clamp(44 + s.gpu * .2 + (Math.random() - .5), 40, 70);
+    s.ram = w(s.ram, .2, 17.6, 19.6); s.vram = w(s.vram, .1, 5.8, 6.8); s.down = w(s.down, .6, .2, 4.2); s.up = w(s.up, 60, 60, 480);
+    s.cpuHist.push(s.cpu); s.cpuHist.shift(); s.gpuHist.push(s.gpu); s.gpuHist.shift();
+    const n = D.net; n.latency = Math.random() < .03 ? 30 + Math.random() * 10 : 15 + Math.random() * 4; n.jitter = w(n.jitter, .3, 1.2, 3.4);
+    n.latHist.push(n.latency); n.latHist.shift(); n.nowDl = w(n.nowDl, 3, 4, 28); n.nowUl = w(n.nowUl, .5, .4, 4);
+    if (S.playing) { S.pos++; if (S.pos >= track().len) { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); } }
+  }
+  if (S.tRun) { S.tLeft--; if (S.tLeft <= 0) { S.tRun = false; S.sessions = Math.min(4, S.sessions + (S.tMode === 'focus' ? 1 : 0)); S.tLeft = tMode().min * 60; render(); toast(`${tMode().label} finished`); } }
+  refresh();
+}
+
+function fit() {
+  const dev = document.getElementById('device'), wrap = document.getElementById('device-wrap'), stage = document.getElementById('stage');
+  const [w, h] = SIZES[S.size];
+  screen.style.width = w + 'px'; screen.style.height = h + 'px';
+  const bezel = 22;
+  const sc = Math.min((stage.clientWidth - 16) / (w + bezel), (stage.clientHeight - 16) / (h + bezel), 1.6);
+  dev.style.transform = `scale(${sc})`;
+  wrap.style.width = (w + bezel) * sc + 'px'; wrap.style.height = (h + bezel) * sc + 'px';
+}
+
+function boot(t) {
+  theme = t;
+  screen = document.getElementById('screen');
+  screen.innerHTML = t.frame() + `<div class="offline-banner" role="status"><strong>Laptop not connected.</strong> <span>Showing the last data received. Plug in the USB cable or check that both devices are on the same Wi‑Fi.</span></div>`;
+  view = screen.querySelector('#view'); nav = screen.querySelector('#nav');
+  screen.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]'); if (!el || !screen.contains(el)) return;
+    A[el.dataset.act]?.(el.dataset.v, e, el);
+  });
+  screen.addEventListener('keydown', e => {
+    const el = e.target.closest('[role="button"][data-act]');
+    if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); A[el.dataset.act]?.(el.dataset.v, e, el); }
+  });
+  document.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
+    S.size = b.dataset.size; document.querySelectorAll('[data-size]').forEach(x => x.setAttribute('aria-pressed', x === b)); fit(); render();
+  }));
+  render(); fit();
+  addEventListener('resize', () => { fit(); refresh(); });
+  setInterval(tick, 1000);
+  document.fonts?.ready.then(() => refresh());
+}
+
+window.DP = { D, S, B, PB, A, icon, art, linePath, stepPath, arc, size, clamp, dur, ms, clock, ampm, now, nextEvent, printerPct, printerLeft, track, tMode, usageLevel, toast, render, refresh, boot, DAY, DAY3, MONTH, MON3, START };
+})();
+
+</script>
+<script>
+(() => {
+const { D, S, icon, art, linePath, size, track, tMode, nextEvent, now } = DP;
+const PAGES = [['home', 'Home'], ['system', 'System'], ['claude', 'Claude'], ['calendar', 'Calendar'], ['weather', 'Weather'], ['music', 'Music'],
+  ['printer', 'Printer'], ['timer', 'Timer'], ['games', 'Games'], ['github', 'GitHub'], ['shortcuts', 'Shortcuts']];
+const ser = (cls, inner) => `<div class="serif ${cls}">${inner}</div>`;
+
+const pages = {
+  home: () => {
+    const n = nextEvent(), t = track();
+    const gl = (go, ic, title, sub, extra = '') => `<div class="gl" role="button" tabindex="0" data-act="go" data-v="${go}">${icon(ic)}<div style="min-width:0"><b class="ell">${title}</b><span class="mu ell" style="display:block">${sub}</span></div>${extra}</div>`;
+    return `<div class="split" style="grid-template-columns:1.05fr 1fr"><div class="col">
+        <div class="lbl" data-b="date"></div>
+        ${ser('bigclock', '<span data-b="clock"></span><small data-b="ampm"></small>')}
+        <div class="mu" style="margin-top:auto;font-size:13px;max-width:34ch">${n ? `Next up is <b style="color:var(--tx)">${n.title}</b>, <span data-b="nextIn"></span>.` : 'Nothing else on your calendar today.'}</div>
+      </div><div class="col ruled"><div class="glances">
+        ${gl('weather', 'cloud', `${D.wx.temp}° and ${D.wx.cond.toLowerCase()}`, `High ${D.wx.days[0][2]}°. Rain likely Saturday.`)}
+        ${gl('claude', 'claude', `${D.claude.five}% of your 5-hour limit`, 'Resets in <span data-b="fiveReset"></span>')}
+        ${gl('printer', 'printer', `${D.printer.job} at <span data-b="prPct"></span>%`, 'Done at <span data-b="prDone"></span>')}
+        ${gl('system', 'system', 'Laptop running cool', 'CPU <span data-b="cpu"></span>%, GPU <span data-b="gpu"></span>%, <span data-b="gpuTemp"></span>°C')}
+        ${gl('music', 'music', '<span data-b="trTitle"></span>', '<span data-b="trArtist"></span>', `<button class="mini-play" data-act="play" aria-label="${S.playing ? 'Pause' : 'Play'}">${icon(S.playing ? 'pause' : 'play')}</button>`)}
+      </div></div></div>`;
+  },
+
+  system: () => {
+    const tabs = `<div class="tabs" role="group" aria-label="View"><button data-act="tab" data-v="pc" aria-pressed="${S.sysTab === 'pc'}">Laptop</button><button data-act="tab" data-v="net" aria-pressed="${S.sysTab === 'net'}">Internet</button></div>`;
+    if (S.sysTab === 'pc') {
+      const s = D.sys, m = (label, b, p, c, sub) => `<div class="metric"><div class="lbl">${label}</div>${ser('n', `<span data-b="${b}"></span><small>%</small>`)}<div class="line" style="--c:${c}" data-p="${p}"><i></i></div><div class="mu">${sub}</div></div>`;
+      return `<div class="col" style="height:100%">${tabs}<div class="quad">
+        ${m('Processor', 'cpu', 'cpu', 'hsl(205 95% 72%)', '8 cores, 16 threads')}
+        ${m('Graphics', 'gpu', 'gpu', 'hsl(170 75% 62%)', '<span data-b="gpuTemp"></span>°C')}
+        ${m('Memory', 'ramPct', 'ram', 'hsl(262 90% 78%)', `<span data-b="ram"></span> of ${s.ramTotal} GB`)}
+        ${m('Video memory', 'vramPct', 'vram', 'hsl(330 85% 74%)', `<span data-b="vram"></span> of ${s.vramTotal} GB`)}
+      </div><div class="chart" data-c="cpugpu"></div>
+      <div class="sysfoot"><span>${s.cpuName} with ${s.gpuName}. Disk ${s.disk}% full.</span><span><span data-b="down"></span> MB/s down, <span data-b="up"></span> KB/s up</span></div></div>`;
+    }
+    const n = D.net;
+    return `<div class="col" style="height:100%">${tabs}<div class="net">
+      <div><div class="lbl">Latency</div>${ser('huge', '<span data-b="latency"></span><small>ms</small>')}<div class="mu" style="margin-top:12px">Jitter <span data-b="jitter"></span> ms, no packet loss</div></div>
+      <div><div class="lbl">Connection</div><div class="serif mid" style="margin:8px 0 10px">${S.conn === 'off' ? 'Unknown' : '<span class="dot"></span>Online'}</div><div class="mu">Up for ${n.uptime}.<br>Last drop ${n.lastDrop}.</div>
+        <div style="margin-top:14px" class="mu">${n.today} GB today<br>${n.month.toFixed(0)} GB this month</div></div>
+      <div><div class="lbl">Speed test</div><div class="row" style="gap:18px;margin:8px 0 6px">${ser('mid', '<span data-b="stDl"></span><small>down</small>')}${ser('mid', '<span data-b="stUl"></span><small>up</small>')}</div>
+        <div class="mu" style="font-size:12px"><span data-b="stWhen"></span>, ping <span data-b="stPing"></span> ms</div>
+        <button class="pill ghost" style="margin-top:14px" data-act="speed" ${S.st.running ? 'disabled' : ''}><span data-b="stBtn"></span></button>
+        ${S.st.running ? '<div class="line" style="margin-top:12px" data-p="st"><i></i></div>' : ''}</div>
+    </div><div class="chart" data-c="lat"></div><div class="sysfoot"><span>Latency over the last 2 minutes</span><span>Right now <span data-b="nowDl"></span> down, <span data-b="nowUl"></span> up (Mbps)</span></div></div>`;
+  },
+
+  claude: () => {
+    const c = D.claude, mx = Math.max(...c.days);
+    return `<div class="split" style="grid-template-columns:.9fr 1.2fr"><div class="col">
+        <div class="lbl">5-hour limit</div>${ser('cl-n', `${c.five}<small>%</small>`)}
+        <div class="line" data-p="five" style="--c:hsl(16 95% 70%)"><i></i></div>
+        <div class="mu" style="margin-top:12px;font-size:14px">Resets in <span data-b="fiveReset" style="color:var(--tx)"></span></div>
+        <div style="margin-top:auto"><div class="row lbl"><span>Weekly limit</span><span class="sp"></span><span style="color:var(--tx)">${c.week}%</span></div>
+        <div class="line" data-p="week" style="margin-top:8px;--c:hsl(38 95% 66%)"><i></i></div><div class="fa" style="margin-top:8px;font-size:12px">Resets ${c.weekReset}</div></div>
+      </div><div class="col ruled">
+        <div class="kv">${[['Tokens today', c.tokens], ['Output', c.output], ['Messages', c.messages], ['Last hour', c.lastHour]].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('')}</div>
+        <div class="bars">${c.days.map((v, i) => `<div class="${i === 6 ? 'today' : ''}"><i style="--v:${v / mx * 100}"></i>${c.labels[i]}</div>`).join('')}</div>
+        <div class="models">${c.models.map(([m, v]) => `<span><b>${m}</b>${v.toFixed(1)}M</span>`).join('')}<span class="sp"></span><span>Peak ${mx.toFixed(1)}M</span></div>
+      </div></div>`;
+  },
+
+  calendar: () => {
+    const n = nextEvent();
+    const H0 = 8, H1 = 18, y = m => ((m / 60 - H0) / (H1 - H0) * 100).toFixed(2) + '%';
+    const nm = now().getHours() * 60 + now().getMinutes();
+    return `<div class="split" style="grid-template-columns:1fr 1fr"><div class="col">
+        <div class="lbl">${n ? 'Next up' : 'Today'}</div>
+        ${n ? `${ser('ev-t', n.title)}<div class="ev-in hue" data-b="nextIn"></div><div class="mu" style="margin-top:10px;font-size:14px">${n.start} to ${n.end}, ${n.where}</div>` : ser('ev-t', 'All clear')}
+        <div class="later"><div class="lbl" style="display:block;margin-bottom:2px">Later this week</div>${D.cal.later.map(e => `<div><span>${e.day}</span><span><b>${e.title}</b>, ${e.start}</span></div>`).join('')}</div>
+      </div><div class="col"><div class="tl">
+        ${[8, 10, 12, 14, 16, 18].map(h => `<div class="hr" style="top:${y(h * 60)}">${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}</div>`).join('')}
+        ${D.cal.today.map(e => { const len = { 'Team standup': 15, 'Lunch with Sam': 60, 'Design review': 45 }[e.title] || 30;
+          return `<div class="blk ${e.mins + len < nm ? 'done' : ''}" style="--c:${e.color};top:${y(e.mins)};height:${(len / 60 / (H1 - H0) * 100).toFixed(2)}%"><b>${e.title}</b><span>${e.start}</span></div>`; }).join('')}
+        <div class="now" style="top:${y(nm)}"></div>
+      </div></div></div>`;
+  },
+
+  weather: () => {
+    const w = D.wx, lo = Math.min(...w.days.map(d => d[3])), hi = Math.max(...w.days.map(d => d[2]));
+    return `<div class="col" style="height:100%"><div class="wx-top"><div class="col">
+        <div class="lbl">${w.city}</div>${ser('wx-n', `${w.temp}°`)}
+        <div style="font-size:17px;margin-top:14px">${w.cond}</div>
+        <div class="mu" style="margin-top:4px">Feels like ${w.feels}°. Humidity ${w.humidity}%. Wind ${w.wind} mph.</div>
+      </div><div class="wx-days">${w.days.map(([d, i, h, l, p]) => `<div><span>${d}</span>${icon(i)}<em>${p ? p + '%' : ''}</em><span class="mu" style="text-align:right">${l}°</span>
+        <div class="rng"><i style="--a:${(l - lo) / (hi - lo) * 100};--b:${(h - lo) / (hi - lo) * 100}"></i></div><span>${h}°</span></div>`).join('')}</div></div>
+      <div class="curve" data-c="temps"></div></div>`;
+  },
+
+  music: () => {
+    const t = track();
+    return `<div class="mus"><div class="cover"><div class="blur">${art(t.hue, S.track + 1)}</div>${art(t.hue, S.track + 1)}</div><div class="col">
+      <div class="lbl">Playing on Spotify</div><h2 data-b="trTitle"></h2><div style="font-size:16px;font-weight:600" data-b="trArtist"></div><div class="mu" data-b="trAlbum"></div>
+      <div class="seek" data-act="seek" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="${t.len}"><div class="line" data-p="music" style="--c:var(--tx)"><i></i></div></div>
+      <div class="times"><span data-b="trPos"></span><span data-b="trLeft"></span></div>
+      <div class="ctrls"><button data-act="prev" aria-label="Previous track">${icon('prev')}</button><button class="main" data-act="play" aria-label="${S.playing ? 'Pause' : 'Play'}">${icon(S.playing ? 'pause' : 'play')}</button><button data-act="next" aria-label="Next track">${icon('next')}</button></div>
+    </div></div>`;
+  },
+
+  printer: () => {
+    const p = D.printer;
+    return `<div class="col" style="height:100%"><div class="split" style="grid-template-columns:1fr 1fr;flex:1"><div class="col">
+        <div class="lbl">${p.name}, ${p.status.toLowerCase()}</div>${ser('pr-n', '<span data-b="prPct"></span><small>%</small>')}
+        <div style="font-size:17px">${p.job}</div><div class="mu" style="margin-top:4px"><span data-b="prLeft"></span> left. Done at <span data-b="prDone"></span>.</div>
+      </div><div class="col ruled">
+        <div class="temps">${[['Nozzle', p.nozzle, p.nozzleT], ['Bed', p.bed, p.bedT], ['Chamber', p.chamber, 0]].map(([l, v, t]) => `<div><div class="lbl">${l}</div><b>${v}°</b><span class="fa" style="font-size:12px">${t ? 'of ' + t + '°' : 'ambient'}</span></div>`).join('')}</div>
+        <div class="lbl" style="margin-top:auto;margin-bottom:10px">Filament, ${p.speed.toLowerCase()} speed</div>
+        <div class="spools" style="margin-top:0">${p.ams.map(a => `<div class="${a.active ? 'on' : ''}" style="--c:${a.c}"><i></i>${a.n} ${a.t}</div>`).join('')}</div>
+      </div></div>
+      <div class="layers" data-p="printer" aria-label="Layer progress"><i></i></div>
+      <div class="row fa" style="font-size:11.5px;margin-top:6px"><span>Layer <span data-b="prLayer"></span></span><span class="sp"></span><span>${p.layers}</span></div></div>`;
+  },
+
+  timer: () => `<div class="tm">
+      <div class="tabs" role="group" aria-label="Timer mode" style="margin:0">${D.timerModes.map(m => `<button data-act="tMode" data-v="${m.id}" aria-pressed="${m.id === S.tMode}">${m.label}</button>`).join('')}</div>
+      ${ser('tm-n', '<span data-b="timer"></span>')}
+      <div class="line" data-p="timer"><i></i></div>
+      <div class="row"><button class="pill" data-act="tStart"><span data-b="tLabel"></span></button><button class="pill ghost" data-act="tReset">Reset</button></div>
+      <div class="fa" style="margin-top:14px;font-size:12px">${S.sessions} of 4 focus sessions done today</div></div>`,
+
+  games: () => {
+    const g = D.games.now;
+    return `<div class="col" style="height:100%"><div class="gm-top"><div class="gm-art"><div class="blur">${art(g.hue, 3, { w: 180 })}</div>${art(g.hue, 3, { w: 180 })}</div><div class="col" style="justify-content:center">
+        <div class="lbl">Now playing</div><h2>${g.title}</h2><div style="font-size:15px"><span data-b="gameSession"></span> this session</div>
+        <div class="mu" style="margin-top:4px">${g.total} hours total. ${g.friends} friends are playing too.</div></div></div>
+      <div class="shelf">${D.games.recent.map(([t, h, hue], i) => `<button data-act="game" data-v="${t}" aria-label="Play ${t}"><div class="im">${art(hue, i + 2)}</div><div style="min-width:0"><b class="ell">${t}</b><span>${h} h</span></div></button>`).join('')}</div></div>`;
+  },
+
+  github: () => {
+    const g = D.gh, mx = Math.max(...g.week, ...g.lastWeek), td = DP.START.getDay();
+    return `<div class="col" style="height:100%"><div class="gh-top">
+      <div><div class="lbl">Current streak</div>${ser('streak', g.streak)}<div class="mu">days in a row. Longest ${g.longest}, best day ${g.best} on ${g.bestDay}.</div></div>
+      <div><div class="lbl">This week</div><div class="row" style="align-items:baseline;margin-top:4px">${ser('mid', g.weekTotal)}<span style="color:hsl(138 70% 66%);font-weight:700">+${g.delta}</span><span class="fa" style="font-size:12px">vs last week</span></div>
+        <div class="wk">${g.week.map((v, i) => `<div><div class="pr"><i class="l" style="--v:${g.lastWeek[i] / mx * 100}"></i><i style="--v:${(i > td ? 0 : v) / mx * 100}"></i></div><span style="${i === td ? 'color:var(--tx);font-weight:700' : ''}">${'SMTWTFS'[i]}</span></div>`).join('')}</div></div>
+      <div><div class="lbl">Top repos</div><div class="repos">${g.repos.map(([r, n]) => `<div><span>${r}</span><span class="mu">${n}</span><div class="line" style="--p:${n / g.repos[0][1]};--c:hsl(138 65% 62%)"><i></i></div></div>`).join('')}</div></div>
+    </div><div class="heat" data-c="heat"></div></div>`;
+  },
+
+  shortcuts: () => `<div class="sc">${D.shortcuts.map(s => {
+    const on = (s.id === 'mic' && S.mic) || (s.id === 'sound' && S.sound);
+    const ic = s.id === 'mic' && S.mic ? 'micOff' : s.id === 'sound' && S.sound ? 'speakerOff' : s.icon;
+    const label = s.id === 'mic' ? (S.mic ? 'Mic muted' : 'Mute mic') : s.id === 'sound' ? (S.sound ? 'Sound muted' : 'Mute sound') : s.label;
+    return `<button class="key ${on ? 'on' : ''}" data-act="sc" data-v="${s.id}" aria-pressed="${on}"><span class="ring">${icon(ic)}</span>${label}${s.id.startsWith('vol') ? `<small>${S.vol}%</small>` : ''}</button>`;
+  }).join('')}</div>`
+};
+
+const glowLine = (vals, w, h, lo, hi, color, sw = 2) => { const d = linePath(vals, w, h, lo, hi, 6);
+  return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${sw * 4}" stroke-opacity=".18" style="filter:blur(4px)"/><path d="${d}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`; };
+
+const charts = {
+  cpugpu: el => { const [w, h] = size(el); return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Processor and graphics load over the last minute">
+    ${glowLine(D.sys.gpuHist, w, h, 0, 100, 'hsl(170 75% 62%)')}${glowLine(D.sys.cpuHist, w, h, 0, 100, 'hsl(205 95% 72%)')}</svg>`; },
+  lat: el => { const [w, h] = size(el); return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Latency over the last two minutes">${glowLine(D.net.latHist, w, h, 0, 50, 'hsl(178 80% 66%)', 1.6)}</svg>`; },
+  temps: el => {
+    const [w, h] = size(el), hs = D.wx.hours, n = hs.length, vals = hs.map(x => x[1]), lo = Math.min(...vals) - 3, hi = Math.max(...vals) + 2;
+    const pw = w - 40, top = 22, ch = h - 44, X = i => 20 + i * pw / (n - 1), Y = v => top + ch * (1 - (v - lo) / (hi - lo));
+    let d = `M${X(0)} ${Y(vals[0])}`; for (let i = 1; i < n; i++) { const xm = (X(i - 1) + X(i)) / 2; d += ` C${xm} ${Y(vals[i - 1])} ${xm} ${Y(vals[i])} ${X(i)} ${Y(vals[i])}`; }
+    const pts = hs.map(([t, v], i) => `<circle cx="${X(i)}" cy="${Y(v)}" r="${i === 0 ? 4 : 2.2}" fill="${i === 0 ? 'hsl(205 95% 80%)' : 'var(--tx)'}"/><text class="t" x="${X(i)}" y="${Y(v) - 10}" text-anchor="middle">${v}°</text><text x="${X(i)}" y="${h - 2}" text-anchor="middle">${t}</text>`).join('');
+    return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Temperature for the next 12 hours"><path d="${d}" fill="none" stroke="hsl(205 90% 72%)" stroke-width="6" stroke-opacity=".15" style="filter:blur(3px)"/><path d="${d}" fill="none" stroke="hsl(205 90% 72%)" stroke-width="1.6"/>${pts}</svg>`;
+  },
+  heat: el => {
+    const g = D.gh, [w, h] = size(el), lw = 0, cw = (w - lw) / 53, top = 14, rh = Math.min(cw, (h - top) / 7), r = Math.min(cw, rh) * .34;
+    const a = v => v == null ? 0 : v === 0 ? .08 : v < 4 ? .32 : v < 10 ? .55 : v < 20 ? .8 : 1;
+    let s = g.months.map(m => `<text x="${lw + m.i * cw}" y="9">${m.label}</text>`).join('');
+    g.weeks.forEach((col, x) => col.forEach((v, y) => { if (v == null) return; const o = a(v); s += `<circle cx="${(lw + x * cw + cw / 2).toFixed(1)}" cy="${(top + y * rh + rh / 2).toFixed(1)}" r="${(v ? r * (1 + o * .35) : r * .7).toFixed(2)}" fill="${v ? 'hsl(138 75% 62%)' : 'var(--tx)'}" fill-opacity="${o}"/>`; }));
+    return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Contributions over the last year: ${g.total}">${s}</svg>`;
+  }
+};
+
+let scr;
+function refresh() {
+  scr = scr || document.getElementById('screen');
+  if (S.page === 'music') scr.style.setProperty('--h', track().hue);
+  else if (S.page === 'games') scr.style.setProperty('--h', D.games.now.hue);
+  else scr.style.removeProperty('--h');
+  if (S.page === 'claude') scr.style.setProperty('--ga', (.18 + D.claude.five / 100 * .45).toFixed(2)); else scr.style.removeProperty('--ga');
+}
+
+const nav = () => PAGES.map(([id, l]) => `<button data-act="go" data-v="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+
+DP.boot({
+  frame: () => `<div class="gw"><main id="view" class="view"></main><div class="bottom"><nav id="nav" class="nav" aria-label="Pages"></nav>
+    <button class="status" data-act="conn" aria-label="Connection status. Tap to preview other states"><span class="ck" data-b="clock"></span><i></i><span data-b="connLong"></span></button></div></div>`,
+  nav,
+  pages, charts, refresh
+});
+})();
+
+</script>
+</body>
+</html>

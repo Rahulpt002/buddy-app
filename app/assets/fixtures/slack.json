@@ -1,0 +1,81 @@
+{
+  "status": "ok",
+  "message": null,
+  "team": "Acme",
+  "user": "you",
+  "unread": 3,
+  "messages": [
+    {
+      "id": "D01:1795525537798",
+      "ts": 1795525537798,
+      "channel_id": "D01",
+      "channel": "Maya Chen",
+      "kind": "dm",
+      "sender": "Maya Chen",
+      "sender_color": "#E01E5A",
+      "text": "Are you free for a quick call about the release notes? 10 min max",
+      "thread": false,
+      "unread": true
+    },
+    {
+      "id": "C01:1795525117798",
+      "ts": 1795525117798,
+      "channel_id": "C01",
+      "channel": "#deploys",
+      "kind": "mention",
+      "sender": "Jonas Weber",
+      "sender_color": "#ECB22E",
+      "text": "@you staging is green, can you approve the prod deploy when you get a sec?",
+      "thread": false,
+      "unread": true
+    },
+    {
+      "id": "G01:1795524217798",
+      "ts": 1795524217798,
+      "channel_id": "G01",
+      "channel": "Priya, Leo",
+      "kind": "group",
+      "sender": "Leo Martins",
+      "sender_color": "#ECB22E",
+      "text": "Pushed the new onboarding screens, thoughts welcome",
+      "thread": false,
+      "unread": true
+    },
+    {
+      "id": "C02:1795522597798",
+      "ts": 1795522597798,
+      "channel_id": "C02",
+      "channel": "#design",
+      "kind": "mention",
+      "sender": "Priya Nair",
+      "sender_color": "#9B6BF2",
+      "text": "@you I left comments on the settings mockups",
+      "thread": true,
+      "unread": false
+    },
+    {
+      "id": "D02:1795519957798",
+      "ts": 1795519957798,
+      "channel_id": "D02",
+      "channel": "Sam Okafor",
+      "kind": "dm",
+      "sender": "Sam Okafor",
+      "sender_color": "#9B6BF2",
+      "text": "Thanks for the review yesterday!",
+      "thread": false,
+      "unread": false
+    },
+    {
+      "id": "C03:1795514857798",
+      "ts": 1795514857798,
+      "channel_id": "C03",
+      "channel": "#general",
+      "kind": "mention",
+      "sender": "Ana Ruiz",
+      "sender_color": "#36C5F0",
+      "text": "@here lunch order closes at 12:30",
+      "thread": false,
+      "unread": false
+    }
+  ]
+}

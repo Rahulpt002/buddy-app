@@ -1,0 +1,3 @@
+__version__ = "0.1.0"
+PROTO_VERSION = 1
+DEFAULT_PORT = 8765

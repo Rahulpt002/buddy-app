@@ -1,0 +1,97 @@
+{
+  "status": "ok",
+  "message": null,
+  "name": "Roof phone",
+  "model": "samsung SM-M526B \u00b7 Android 14",
+  "online": true,
+  "last_seen": 1795525645798,
+  "updated": 1795525637798,
+  "internet": true,
+  "down_since": null,
+  "net_type": "5G NSA",
+  "band": "B40 + n78",
+  "operator": "Jio 5G",
+  "score": 68.0,
+  "grade": "good",
+  "rsrp": -86.0,
+  "sinr": 14.5,
+  "rsrq": -11.0,
+  "rx_bps": 18400000.0,
+  "tx_bps": 3312000.0,
+  "ping_ms": 34.0,
+  "loss_pct": 0.0,
+  "jitter_ms": 4.2,
+  "tether_on": true,
+  "clients": 1,
+  "battery_pct": 82.0,
+  "current_ma": -180.0,
+  "charge_status": "discharging",
+  "plug": "usb",
+  "charge_note": "limit 80%",
+  "low_battery": false,
+  "battery_c": 37.5,
+  "cpu_c": 44.0,
+  "modem_c": 41.5,
+  "thermal": "Light",
+  "heat": "ok",
+  "radio_resting": false,
+  "cycle_used": 148600000000.0,
+  "quota": 300000000000.0,
+  "today_used": 6200000000.0,
+  "cycle_start": "2026-11-05",
+  "uptime_s": 370800.0,
+  "agent_uptime_s": 370760.0,
+  "boot_count": 214,
+  "boot_reason": "watchdog",
+  "events": [
+    {
+      "ts": 1795525417798,
+      "kind": "connectivity",
+      "severity": "info",
+      "message": "Internet back after 42 s"
+    },
+    {
+      "ts": 1795525357798,
+      "kind": "watchdog_action",
+      "severity": "warning",
+      "message": "Watchdog: mobile data cycled, internet recovered"
+    },
+    {
+      "ts": 1795523377798,
+      "kind": "cell_change",
+      "severity": "info",
+      "message": "Serving cell changed: PCI 211 to 87 (B40)"
+    },
+    {
+      "ts": 1795519957798,
+      "kind": "temp_normal",
+      "severity": "info",
+      "message": "Battery back to 36 \u00b0C"
+    },
+    {
+      "ts": 1795517857798,
+      "kind": "temp_warning",
+      "severity": "warning",
+      "message": "Battery at 41 \u00b0C"
+    },
+    {
+      "ts": 1795507657798,
+      "kind": "charging_resumed",
+      "severity": "info",
+      "message": "Charging resumed (below 75%)"
+    },
+    {
+      "ts": 1795482457798,
+      "kind": "boot",
+      "severity": "info",
+      "message": "Phone booted (boot #214, reason: watchdog)"
+    },
+    {
+      "ts": 1795439257798,
+      "kind": "agent_start",
+      "severity": "info",
+      "message": "Agent started after boot"
+    }
+  ],
+  "session_expires": 1797340057798
+}

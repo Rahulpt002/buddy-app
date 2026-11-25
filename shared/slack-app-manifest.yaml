@@ -1,0 +1,29 @@
+# DeskPanel Slack app: paste into https://api.slack.com/apps → Create New App → From a manifest.
+# Socket Mode (no public URL). User scopes/events only: it sees what you can see, and the
+# agent keeps just your DMs, group DMs and @mentions.
+display_information:
+  name: DeskPanel
+  description: Shows your Slack DMs and mentions on your DeskPanel phone.
+  background_color: "#1f2328"
+oauth_config:
+  scopes:
+    user:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - users:read
+settings:
+  event_subscriptions:
+    user_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

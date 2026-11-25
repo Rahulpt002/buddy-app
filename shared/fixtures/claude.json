@@ -1,0 +1,71 @@
+{
+  "status": "ok",
+  "message": null,
+  "limits": {
+    "source": "statusline",
+    "updated_at": 1795525657798,
+    "five_hour": {
+      "used_pct": 38.0,
+      "resets_at": 1795533577798,
+      "expired": false
+    },
+    "seven_day": {
+      "used_pct": 61.0,
+      "resets_at": 1795854660000,
+      "expired": false
+    }
+  },
+  "today": {
+    "tokens": 48200000,
+    "output_tokens": 182000,
+    "messages": 214,
+    "last_hour_tokens": 6100000
+  },
+  "days": [
+    {
+      "date": "2026-11-18",
+      "tokens": 28400000
+    },
+    {
+      "date": "2026-11-19",
+      "tokens": 6900000
+    },
+    {
+      "date": "2026-11-20",
+      "tokens": 21500000
+    },
+    {
+      "date": "2026-11-21",
+      "tokens": 55300000
+    },
+    {
+      "date": "2026-11-22",
+      "tokens": 43100000
+    },
+    {
+      "date": "2026-11-23",
+      "tokens": 62000000
+    },
+    {
+      "date": "2026-11-24",
+      "tokens": 48200000
+    }
+  ],
+  "models_today": [
+    {
+      "family": "opus",
+      "model": "claude-opus-5-5",
+      "tokens": 31000000
+    },
+    {
+      "family": "sonnet",
+      "model": "claude-sonnet-5-5",
+      "tokens": 15100000
+    },
+    {
+      "family": "haiku",
+      "model": "claude-haiku-5-5",
+      "tokens": 2100000
+    }
+  ]
+}

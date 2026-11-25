@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeskPanel concept 6: Cockpit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap">
+<style>
+/* ---------- Page chrome (outside the device) ---------- */
+:root {
+  --pg-bg: #E9EAEC; --pg-ink: #18191C; --pg-muted: #5D6168; --pg-line: #D2D4D8; --pg-chip: #FFFFFF; --pg-chip-on: #18191C; --pg-chip-on-ink: #FFFFFF;
+  color-scheme: light;
+  box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+html { height: 100%; }
+body { margin: 0; min-height: 100%; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--pg-bg); color: var(--pg-ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.pg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 14px 22px 4px; }
+.pg-head h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.pg-head h1 small { font-weight: 450; color: var(--pg-muted); margin-left: 6px; font-size: 14px; }
+.pg-head p { margin: 0; color: var(--pg-muted); max-width: 70ch; flex: 1 1 340px; }
+.pg-sizes { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--pg-line); border-radius: 999px; background: var(--pg-chip); }
+.pg-sizes button { font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 5px 12px; background: transparent; color: var(--pg-ink); cursor: pointer; }
+.pg-sizes button[aria-pressed="true"] { background: var(--pg-chip-on); color: var(--pg-chip-on-ink); }
+.pg-sizes button:focus-visible { outline: 2px solid var(--pg-ink); outline-offset: 2px; }
+#stage { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px 12px; }
+#device-wrap { position: relative; flex: none; }
+#device { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 11px; border-radius: 36px; background: #060607;
+  box-shadow: 0 0 0 1.5px #2C2D31, 0 30px 70px -30px rgba(0,0,0,.55); }
+.pg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 6px 22px 16px; color: var(--pg-muted); font-size: 12.5px; }
+.pg-foot .sw { display: inline-flex; align-items: center; gap: 6px; }
+.pg-foot .sw i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.pg-foot .swatches { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pg-foot b { color: var(--pg-ink); font-weight: 600; }
+
+/* ---------- Device screen base (shared by all concepts) ---------- */
+#screen { position: relative; overflow: hidden; border-radius: 25px; isolation: isolate; -webkit-font-smoothing: antialiased; }
+#screen *, #screen *::before, #screen *::after { box-sizing: border-box; }
+:where(#screen) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: inherit; }
+:where(#screen) [role="button"] { cursor: pointer; }
+:where(#screen) :is(h1, h2, h3, p) { margin: 0; }
+:where(#screen) .ic { width: 1em; height: 1em; flex: none; display: block; }
+:where(#screen) .art { display: block; width: 100%; height: 100%; }
+:where(#screen) .num { font-variant-numeric: tabular-nums; }
+:where(#screen) .offline-banner { display: none; position: absolute; z-index: 20; }
+:where(#screen[data-conn="off"]) .offline-banner { display: block; }
+:where(#screen) .toast { position: absolute; z-index: 30; left: 50%; bottom: 16px; transform: translate(-50%, 0); white-space: nowrap; animation: toastIn .22s ease-out; }
+:where(#screen) .toast.out { opacity: 0; transform: translate(-50%, 6px); transition: opacity .3s, transform .3s; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { #screen *, #screen *::before, #screen *::after { transition: none !important; animation: none !important; } }
+
+/* ---------- Concept styles ---------- */
+/* Concept 6 — Cockpit: a glass-cockpit multi-function display.
+   Bezel soft-keys for navigation, dials with zones and target bugs, avionics color rules:
+   white = scales, green = normal/live, cyan = selected, magenta = target/next, amber = caution, red = warning. */
+.cockpit {
+  --bg: #03060A; --fr: #263140; --fr2: #1A222D; --w: #EEF2F5; --gy: #74808E; --g: #3BE27A; --c: #37D6FF; --m: #FF5BE0; --a: #FFB020; --r: #FF4444;
+  --focus: var(--c);
+  background: radial-gradient(130% 100% at 50% 50%, #08101A, var(--bg)); color: var(--w);
+  font: 400 12px/1.3 "B612", "Segoe UI", system-ui, sans-serif;
+}
+.cockpit .cw { display: grid; grid-template-rows: 30px 1fr 30px; height: 100%; }
+.cockpit .mono { font-family: "B612 Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.cockpit .cap { font-weight: 700; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--gy); }
+
+/* Bezel soft keys */
+.cockpit .keys { display: flex; align-items: stretch; gap: 4px; padding: 0 10px; }
+.cockpit .sk { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--w); border-radius: 3px; }
+.cockpit .sk::before { content: ""; position: absolute; left: 50%; width: 16px; margin-left: -8px; height: 2px; background: var(--gy); }
+.cockpit .top .sk::before { top: 0; } .cockpit .bot .sk::before { bottom: 0; }
+.cockpit .sk:hover { color: var(--c); }
+.cockpit .sk[aria-current="page"] { color: var(--c); box-shadow: inset 0 0 0 1.5px var(--c); margin: 5px 0; }
+.cockpit .sk[aria-current="page"]::before { background: var(--c); }
+.cockpit .top .sk[aria-current="page"]::before { top: -5px; } .cockpit .bot .sk[aria-current="page"]::before { bottom: -5px; }
+.cockpit .stat { flex: 1.6; display: flex; align-items: center; justify-content: flex-end; gap: 12px; font-size: 11px; font-weight: 700; letter-spacing: .08em; padding-right: 4px; }
+.cockpit .stat .mono { font-size: 15px; color: var(--w); letter-spacing: 0; }
+.cockpit .stat .lk { color: var(--g); }
+.cockpit[data-conn="off"] .stat .lk { color: var(--a); }
+
+/* Display area */
+.cockpit .view { margin: 0 8px; border: 1px solid var(--fr); border-radius: 6px; padding: 8px; min-height: 0; overflow: auto; scrollbar-width: none; background: rgba(3,6,10,.6); }
+.cockpit .g { display: grid; gap: 8px; height: 100%; min-height: 0; }
+.cockpit .fr { border: 1px solid var(--fr); border-radius: 4px; padding: 14px 10px 8px; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.cockpit .fr > .ft { position: absolute; top: -7px; left: 8px; padding: 0 5px; background: #050A10; font-weight: 700; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--gy); line-height: 13px; }
+.cockpit .fr > .ft b { color: var(--c); font-weight: 700; }
+.cockpit .row { display: flex; align-items: center; gap: 8px; }
+.cockpit .sp { flex: 1; }
+.cockpit .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cockpit .ro { display: inline-block; border: 1.5px solid var(--w); border-radius: 2px; padding: 1px 7px; font-family: "B612 Mono", monospace; color: var(--g); line-height: 1.15; }
+.cockpit .grn { color: var(--g); } .cockpit .cyn { color: var(--c); } .cockpit .mag { color: var(--m); } .cockpit .amb { color: var(--a); } .cockpit .red { color: var(--r); } .cockpit .gry { color: var(--gy); } .cockpit .wht { color: var(--w); }
+.cockpit svg { display: block; overflow: visible; }
+.cockpit svg text { font-family: "B612", sans-serif; }
+.cockpit .dial { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.cockpit .dial svg { width: 100%; height: 100%; max-height: 100%; }
+.cockpit .dials { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.cockpit .chart { flex: 1; min-height: 30px; }
+.cockpit .chart svg { width: 100%; height: 100%; }
+
+/* Tables (ECAM memo / flight plan) */
+.cockpit .memo { display: grid; gap: 7px; font-family: "B612 Mono", monospace; font-size: 12.5px; }
+.cockpit .memo div { display: flex; gap: 6px; white-space: nowrap; }
+.cockpit .memo i { flex: 1; border-bottom: 1.5px dotted currentColor; opacity: .5; margin-bottom: 4px; }
+.cockpit .tbl { width: 100%; border-collapse: collapse; font-family: "B612 Mono", monospace; font-size: 12.5px; }
+.cockpit .tbl th { text-align: left; font: 700 10px "B612"; letter-spacing: .1em; color: var(--gy); padding: 0 8px 6px 0; }
+.cockpit .tbl td { padding: 5px 8px 5px 0; border-top: 1px solid var(--fr2); white-space: nowrap; }
+.cockpit .tbl tr.nx td { color: var(--m); }
+.cockpit .tbl tr.past td { color: var(--gy); }
+.cockpit .tbl .r { text-align: right; padding-right: 0; }
+
+/* Buttons */
+.cockpit .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--c); color: var(--c); font-weight: 700; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; }
+.cockpit .btn:active, .cockpit .btn[aria-pressed="true"] { background: var(--c); color: var(--bg); }
+.cockpit .btn.go { box-shadow: inset 0 0 0 1.5px var(--g); color: var(--g); }
+.cockpit .btn.go:active { background: var(--g); color: var(--bg); }
+.cockpit .btn[disabled] { opacity: .55; }
+.cockpit .btn .ic { font-size: 18px; }
+.cockpit .tabs { display: flex; gap: 6px; }
+.cockpit .tabs .btn { height: 24px; padding: 0 10px; font-size: 10.5px; }
+
+/* Bars */
+.cockpit .bars { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; align-items: end; min-height: 0; }
+.cockpit .bars > div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; font: 700 10px "B612"; letter-spacing: .06em; color: var(--gy); }
+.cockpit .bars i { width: 9px; height: calc(var(--v) * 1%); min-height: 2px; background: var(--c); }
+.cockpit .bars .hi i { background: var(--g); width: 11px; }
+.cockpit .bars .hi { color: var(--g); }
+.cockpit .hbar { height: 5px; background: var(--fr2); position: relative; }
+.cockpit .hbar i { position: absolute; inset: 0 auto 0 0; width: calc(var(--p, 0) * 100%); background: var(--c); }
+
+/* Shortcuts */
+.cockpit .sc { grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; }
+.cockpit .scb { border-radius: 4px; box-shadow: inset 0 0 0 1px var(--fr); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-weight: 700; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--w); }
+.cockpit .scb .ic { font-size: 32px; color: var(--c); stroke-width: 1.6; }
+.cockpit .scb:hover { box-shadow: inset 0 0 0 1.5px var(--c); }
+.cockpit .scb:active { background: rgba(55,214,255,.12); }
+.cockpit .scb.on { box-shadow: inset 0 0 0 2px var(--a); color: var(--a); background: rgba(255,176,32,.08); }
+.cockpit .scb.on .ic { color: var(--a); }
+.cockpit .scb small { font: 400 11px "B612 Mono"; color: var(--g); letter-spacing: 0; margin-top: -6px; }
+
+/* Art */
+.cockpit .art { border-radius: 2px; }
+.cockpit .artfr { border: 1px solid var(--fr); padding: 4px; border-radius: 4px; min-height: 0; }
+
+/* Offline + toast */
+.cockpit .offline-banner { top: 38px; left: 50%; transform: translateX(-50%); padding: 6px 14px; border: 1.5px solid var(--a); background: #0B0A04; color: var(--a); font: 700 11px "B612"; letter-spacing: .06em; text-transform: uppercase; max-width: 86%; text-align: center; border-radius: 3px; }
+.cockpit .offline-banner strong { color: var(--a); }
+.cockpit[data-conn="off"] .view { filter: saturate(.25) brightness(.75); }
+.cockpit .toast { bottom: 40px; padding: 7px 14px; border: 1.5px solid var(--c); background: #03101A; color: var(--c); font: 700 11.5px "B612"; letter-spacing: .08em; text-transform: uppercase; border-radius: 3px; }
+.cockpit svg.art { overflow: hidden; }
+.cockpit .tbl td { text-transform: uppercase; }
+.cockpit .stat .lk span { text-transform: uppercase; }
+
+</style>
+</head>
+<body>
+<header class="pg-head">
+  <h1>Concept 6: Cockpit <small>a glass-cockpit display</small></h1>
+  <p>Borrowed from aircraft displays, which are designed to be read at a glance. Pages sit on bezel soft-keys along the top and bottom edges, values live on dials with caution zones, and colors follow cockpit rules: green is normal, cyan is selected, magenta is a target or the next thing, amber is caution.</p>
+  <div class="pg-sizes" role="group" aria-label="Screen size">
+    <button type="button" data-size="phone" aria-pressed="true">Phone 915×412</button>
+    <button type="button" data-size="seven" aria-pressed="false">7-inch 1024×600</button>
+  </div>
+</header>
+<div id="stage"><div id="device-wrap"><div id="device"><div id="screen" class="cockpit"></div></div></div></div>
+<footer class="pg-foot">
+  <div class="swatches"><span class="sw"><i style="background:#03060A"></i>Display #03060A</span><span class="sw"><i style="background:#263140"></i>Frame #263140</span><span class="sw"><i style="background:#EEF2F5"></i>Scale #EEF2F5</span><span class="sw"><i style="background:#3BE27A"></i>Normal #3BE27A</span><span class="sw"><i style="background:#37D6FF"></i>Selected #37D6FF</span><span class="sw"><i style="background:#FF5BE0"></i>Target #FF5BE0</span><span class="sw"><i style="background:#FFB020"></i>Caution #FFB020</span><span class="sw"><i style="background:#FF4444"></i>Warning #FF4444</span></div>
+  <span><b>Type</b> B612 and B612 Mono, the typefaces designed for Airbus cockpit screens</span>
+  <span>Tap any icon to switch pages. Tap the connection icon to preview Wi‑Fi, USB and offline states.</span>
+</footer>
+<script>
+/* ============================================================
+   DeskPanel concept — shared core
+   Mock data, simulated clock, icons, chart helpers and the
+   app shell (navigation, live bindings, actions, scaling).
+   Every concept file uses this same core; only the
+   frame/nav/page renderers and CSS differ.
+   ============================================================ */
+(() => {
+'use strict';
+
+/* ---------- Simulated clock (fixed scene: Fri Nov 20, 8:35 AM) ---------- */
+const T0 = Date.now();
+const START = new Date(2026, 10, 20, 8, 35, 0);
+const now = () => new Date(START.getTime() + (Date.now() - T0));
+const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAY3 = DAY.map(d => d.slice(0, 3));
+const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON3 = MONTH.map(m => m.slice(0, 3));
+const pad = n => String(n).padStart(2, '0');
+const clock = d => (d.getHours() % 12 || 12) + ':' + pad(d.getMinutes());
+const ampm = d => d.getHours() < 12 ? 'AM' : 'PM';
+const dur = min => { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h ${m}m` : `${m}m`; };
+const ms = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + pad(s % 60); };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+const R = rng(42);
+
+/* ---------- Mock data ---------- */
+const hist = (n, base, amp, f) => Array.from({ length: n }, (_, i) => base + amp * Math.sin(i / f) + (R() - .5) * amp * .5);
+
+const D = {
+  sys: {
+    cpu: 30, gpu: 48, gpuTemp: 52, ram: 18.4, ramTotal: 32, vram: 6.2, vramTotal: 12,
+    down: 1.8, up: 220, cpuName: 'Ryzen 7 7800X3D', gpuName: 'GeForce RTX 4070', disk: 58,
+    cpuHist: hist(60, 30, 6, 4), gpuHist: hist(60, 48, 7, 5)
+  },
+  net: {
+    latency: 17, jitter: 2.1, loss: 0, uptime: '3d 5h', lastDrop: '3 days ago',
+    today: 3.2, month: 412.0, dl: 942, ul: 38, ping: 9, tested: '2h ago', nowDl: 15.1, nowUl: 1.8,
+    latHist: Array.from({ length: 120 }, (_, i) => 16 + R() * 3 + (i === 40 || i === 96 ? 14 : 0))
+  },
+  claude: {
+    five: 38, fiveReset: 132, week: 61, weekReset: 'Sat 2:01 PM',
+    tokens: '48.2M', output: '182K', messages: 214, lastHour: '6.1M',
+    days: [28.4, 6.9, 21.5, 55.3, 43.1, 62.0, 48.2],
+    models: [['Opus', 31.0], ['Sonnet', 15.1], ['Haiku', 2.1]]
+  },
+  cal: {
+    today: [
+      { start: '9:00 AM', end: '9:15 AM', mins: 540, title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { start: '12:30 PM', end: '1:30 PM', mins: 750, title: 'Lunch with Sam', where: 'Corner Cafe', cal: 'Personal', color: '#C18CFF' },
+      { start: '4:00 PM', end: '4:45 PM', mins: 960, title: 'Design review', where: 'Google Meet', cal: 'Work', color: '#5AA9FF' }
+    ],
+    later: [
+      { day: 'Saturday', start: '10:00 AM', title: 'Filament pickup', where: 'Maker Supply Co.', cal: 'Personal', color: '#C18CFF' },
+      { day: 'Monday', start: '9:00 AM', title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { day: 'Tuesday', start: '7:30 PM', title: 'Game night', where: 'Discord', cal: 'Personal', color: '#C18CFF' }
+    ]
+  },
+  wx: {
+    city: 'Charlotte', temp: 58, cond: 'Overcast', icon: 'cloud', feels: 53, humidity: 53, wind: 5, updated: '8:30 AM',
+    hours: [['Now', 58, 'cloud'], ['9 AM', 59, 'cloud'], ['10 AM', 61, 'cloud'], ['11 AM', 63, 'partly'], ['12 PM', 65, 'partly'],
+      ['1 PM', 67, 'sun'], ['2 PM', 68, 'sun'], ['3 PM', 69, 'sun'], ['4 PM', 67, 'partly'], ['5 PM', 64, 'cloud'], ['6 PM', 61, 'cloud'], ['7 PM', 57, 'cloud']],
+    days: [['Today', 'cloud', 69, 40, 0], ['Sat', 'rain', 61, 48, 63], ['Sun', 'rain', 57, 54, 54], ['Mon', 'rain', 68, 56, 38], ['Tue', 'cloud', 62, 50, 0], ['Wed', 'rain', 50, 43, 46]]
+  },
+  tracks: [
+    { title: 'Midnight City Lights', artist: 'Synth Dreams', album: 'Neon Skyline', len: 241, hue: 262 },
+    { title: 'Low Tide Radio', artist: 'Harbor Static', album: 'Salt & Signal', len: 214, hue: 196 },
+    { title: 'Paper Planets', artist: 'Juno Vale', album: 'Orbit Season', len: 192, hue: 28 },
+    { title: 'Afterglow Freeway', artist: 'The Night Shift', album: 'Overpass', len: 265, hue: 330 }
+  ],
+  printer: {
+    name: 'X1 Carbon', model: 'X1C', status: 'Printing', job: 'Desk_Organizer', speed: 'Standard',
+    pct: 47, left: 48, layer: 112, layers: 240, nozzle: 220, nozzleT: 220, bed: 55, bedT: 55, chamber: 34,
+    ams: [{ c: '#F1F1EE', t: 'PLA', n: 'White' }, { c: '#1D1E21', t: 'PLA', n: 'Black' }, { c: '#F5A623', t: 'PETG', n: 'Amber', active: true }, { c: '#3B82F6', t: 'PLA', n: 'Blue' }]
+  },
+  games: {
+    now: { title: 'Starfall Tactics', hue: 252, session: 48, total: 128, friends: 2 },
+    recent: [['Harbor Lights', 41, 205], ['Iron Orchard', 16, 95], ['Neon Drift', 12, 318], ['Frostline', 5.0, 205], ['Ember Keep', 75, 20]]
+  },
+  gh: {
+    total: '1,033', commits: 120, private: 907, issues: 1, streak: 5, longest: 10, best: 75, bestDay: 'Nov 16',
+    week: [0, 75, 68, 48, 58, 32, 0], lastWeek: [0, 28, 14, 20, 24, 10, 5], weekTotal: 281, delta: 180,
+    repos: [['pixel-garden', 222], ['tide-engine', 201], ['deskpanel', 111], ['lumen-notes', 88]]
+  },
+  shortcuts: [
+    { id: 'mic', label: 'Mute mic', icon: 'mic' }, { id: 'sound', label: 'Mute sound', icon: 'speaker' },
+    { id: 'voldown', label: 'Volume down', icon: 'volDown' }, { id: 'volup', label: 'Volume up', icon: 'volUp' },
+    { id: 'shot', label: 'Screenshot', icon: 'shot' }, { id: 'term', label: 'Terminal', icon: 'terminal' },
+    { id: 'dl', label: 'Downloads', icon: 'folder' }, { id: 'lock', label: 'Lock PC', icon: 'lock' }
+  ],
+  timerModes: [{ id: 'focus', label: 'Focus', min: 25 }, { id: 'short', label: 'Short break', min: 5 }, { id: 'long', label: 'Long break', min: 15 }]
+};
+
+/* 7-day labels ending today, GitHub heatmap (53 weeks ending this week) */
+(() => {
+  const t = START;
+  D.claude.labels = D.claude.days.map((_, i) => i === 6 ? 'Today' : DAY3[(t.getDay() - 6 + i + 7) % 7]);
+  const sat = new Date(t); sat.setDate(t.getDate() + (6 - t.getDay()));
+  const first = new Date(sat); first.setDate(sat.getDate() - 53 * 7 + 1);
+  const busy = { 5: .6, 6: .75, 7: .5, 9: .55, 10: .8, 11: .85, 1: .35, 2: .3, 3: .15, 4: .35, 8: .45, 0: .3 };
+  const r = rng(7); const weeks = []; const months = [];
+  for (let w = 0; w < 53; w++) {
+    const col = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(first); day.setDate(first.getDate() + w * 7 + d);
+      if (day > t) { col.push(null); continue; }
+      const p = busy[day.getMonth()] * (d === 0 || d === 6 ? .5 : 1);
+      col.push(r() < p ? Math.ceil(r() ** 2 * 22) : 0);
+    }
+    const ws = new Date(first); ws.setDate(first.getDate() + w * 7);
+    const prev = new Date(ws); prev.setDate(ws.getDate() - 7);
+    if (w > 0 && ws.getMonth() !== prev.getMonth() && w < 52) months.push({ i: w, label: MON3[ws.getMonth()] });
+    weeks.push(col);
+  }
+  weeks[52] = D.gh.week.map((v, i) => i > t.getDay() ? null : v);
+  weeks[51] = D.gh.lastWeek.slice();
+  D.gh.weeks = weeks; D.gh.months = months;
+})();
+
+/* ---------- Live state ---------- */
+const S = {
+  page: 'home', sysTab: 'pc', conn: 'wifi', size: 'phone',
+  track: 0, pos: 75, playing: true,
+  mic: false, sound: false, vol: 40,
+  tMode: 'focus', tLeft: 25 * 60, tRun: false, sessions: 2,
+  st: { running: false, p: 0, dl: 942, ul: 38, ping: 9, when: '2h ago' },
+  lastSync: null
+};
+
+/* ---------- Icons (24px, stroke = currentColor) ---------- */
+const P = {
+  home: '<path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6H9v6H4a.5.5 0 0 1-.5-.5z"/>',
+  system: '<path d="M3 16.5 8 11l4 3.5 4.5-6.5 4.5 4"/><path d="M3 20.5h18"/>',
+  claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  weather: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  printer: '<path d="M12 2.8 3.8 7.3v9.4l8.2 4.5 8.2-4.5V7.3z"/><path d="M3.8 7.3 12 11.8l8.2-4.5M12 11.8v9.4"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>',
+  games: '<path d="M7 7.5h10a4.5 4.5 0 0 1 4.5 4.5v2.5a3 3 0 0 1-5.4 1.8L15 15h-6l-1.1 1.3a3 3 0 0 1-5.4-1.8V12A4.5 4.5 0 0 1 7 7.5z"/><path d="M7.5 10.5v3.5M5.75 12.25h3.5"/><circle cx="16" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="18" cy="13.2" r=".9" fill="currentColor" stroke="none"/>',
+  github: '<circle cx="12" cy="12" r="3.5"/><path d="M2.5 12h6M15.5 12h6"/>',
+  shortcuts: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+  monitor: '<rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
+  wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 15.8a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19.3" r="1.1" fill="currentColor" stroke="none"/>',
+  usb: '<path d="M9 2.5v4.5M15 2.5v4.5M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5v5"/>',
+  off: '<path d="M2.5 9a14 14 0 0 1 4.2-2.8M10.5 5.6A14 14 0 0 1 21.5 9M8.7 15.8a5 5 0 0 1 6.6 0M3 3l18 18"/>',
+  cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.7 4.4 4.4 0 0 0 7 18.5z"/>',
+  partly: '<path d="M9.5 6.5V4.5M4.4 8.6l-1.4-1.4M14.6 8.6 16 7.2M3.5 13.5h-1"/><path d="M6.4 12.3a3.8 3.8 0 0 1 6.9-2.8"/><path d="M9 20h9a3.3 3.3 0 0 0 .5-6.55A5 5 0 0 0 8.8 12.7 3.7 3.7 0 0 0 9 20z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  rain: '<path d="M7 15h10.5a3.6 3.6 0 0 0 .5-7.15A5.5 5.5 0 0 0 7.4 7.2 3.9 3.9 0 0 0 7 15z"/><path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5v3.5"/>',
+  micOff: '<path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5.5 11a6.5 6.5 0 0 0 10.9 4.8M18.5 11c0 .7-.1 1.4-.3 2M12 17.5v3.5M3.5 3.5l17 17"/>',
+  speaker: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+  speakerOff: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>',
+  volDown: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5"/>',
+  volUp: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5M18 9.5v5"/>',
+  shot: '<path d="M4 8.5V5.5a1 1 0 0 1 1-1h3M16 4.5h3a1 1 0 0 1 1 1v3M20 15.5v3a1 1 0 0 1-1 1h-3M8 19.5H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2.5"/>',
+  terminal: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M7 9.5l2.8 2.5L7 14.5M12.5 15h4.5"/>',
+  folder: '<path d="M3 6.5a1 1 0 0 1 1-1h5l2 2.2h9a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  play: '<path d="M8 5.2v13.6L19 12z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/>',
+  prev: '<path d="M6 5.5v13"/><path d="M18.5 5.5 9 12l9.5 6.5z" fill="currentColor"/>',
+  next: '<path d="M18 5.5v13"/><path d="M5.5 5.5 15 12l-9.5 6.5z" fill="currentColor"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5M4 3.5v5h5"/>',
+  flame: '<path d="M12 3s5 4.3 5 9.3a5 5 0 0 1-10 0c0-2.8 2-3.9 2.3-6.3C10.8 7.3 12 3 12 3z"/>',
+  bed: '<path d="M12 4 2.5 8.5 12 13l9.5-4.5zM2.5 13 12 17.5l9.5-4.5"/>',
+  thermo: '<path d="M10 14.3V5a2 2 0 0 1 4 0v9.3a4 4 0 1 1-4 0z"/>',
+  down: '<path d="M12 4.5v15M6.5 14l5.5 5.5 5.5-5.5"/>',
+  up: '<path d="M12 19.5v-15M6.5 10 12 4.5l5.5 5.5"/>',
+  drop: '<path d="M12 3.5s6 6.3 6 10.5a6 6 0 0 1-12 0c0-4.2 6-10.5 6-10.5z"/>',
+  wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5M3 12.5h15a2.5 2.5 0 1 1-2.5 2.5M3 16.5h7"/>',
+  users: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14a6 6 0 0 1 3.5 5.5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  pin: '<path d="M12 21s6.5-6 6.5-11a6.5 6.5 0 0 0-13 0c0 5 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'
+};
+const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
+
+/* ---------- Generated cover art: sun over layered hills ---------- */
+let uid = 0;
+function art(hue, seed = 1, opts = {}) {
+  const id = 'a' + (++uid), W = opts.w || 100, k = W / 100;
+  const sx = (28 + (seed * 37) % 44) * k, sy = 30 + (seed * 13) % 14;
+  const sat = opts.sat ?? 58;
+  return `<svg class="art" viewBox="0 0 ${W} 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="hsl(${hue} ${sat}% 20%)"/><stop offset="1" stop-color="hsl(${hue + 18} ${sat + 8}% 44%)"/></linearGradient></defs>
+    <rect width="${W}" height="100" fill="url(#${id})"/>
+    <circle cx="${sx}" cy="${sy}" r="15" fill="hsl(44 96% 82%)"/>
+    <g transform="scale(${k} 1)"><path d="M0 64 C 22 55 42 70 66 60 S 100 56 100 56 V100 H0z" fill="hsl(${hue + 6} ${sat - 10}% 30%)"/>
+    <path d="M0 78 C 28 70 58 86 100 72 V100 H0z" fill="hsl(${hue} ${sat}% 15%)"/></g></svg>`;
+}
+
+/* ---------- Chart helpers ---------- */
+function linePath(vals, w, h, lo, hi, pad = 2) {
+  const n = vals.length, dx = w / (n - 1);
+  const y = v => pad + (h - 2 * pad) * (1 - (clamp(v, lo, hi) - lo) / (hi - lo));
+  let d = `M0 ${y(vals[0]).toFixed(1)}`;
+  for (let i = 1; i < n; i++) {
+    const x0 = (i - 1) * dx, x1 = i * dx, xm = (x0 + x1) / 2;
+    d += ` C${xm.toFixed(1)} ${y(vals[i - 1]).toFixed(1)} ${xm.toFixed(1)} ${y(vals[i]).toFixed(1)} ${x1.toFixed(1)} ${y(vals[i]).toFixed(1)}`;
+  }
+  return d;
+}
+function stepPath(vals, w, h, lo, hi) {
+  const n = vals.length, dx = w / n;
+  const y = v => (h * (1 - (clamp(v, lo, hi) - lo) / (hi - lo))).toFixed(1);
+  let d = `M0 ${y(vals[0])}`;
+  vals.forEach((v, i) => { d += ` H${(i * dx).toFixed(1)} V${y(v)}`; });
+  return d + ` H${w}`;
+}
+function arc(cx, cy, r, a0, a1) {
+  const p = a => [cx + r * Math.cos((a - 90) * Math.PI / 180), cy + r * Math.sin((a - 90) * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+const size = el => [Math.max(10, el.clientWidth), Math.max(10, el.clientHeight)];
+
+/* ---------- Derived values ---------- */
+const nowMin = () => { const d = now(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const nextEvent = () => D.cal.today.find(e => e.mins > nowMin()) || null;
+const elapsedMin = () => (now() - START) / 60000;
+const printerPct = () => clamp(D.printer.pct + elapsedMin() / D.printer.left * (100 - D.printer.pct), 0, 100);
+const printerLeft = () => Math.max(0, D.printer.left - elapsedMin());
+const doneAt = () => clock(new Date(now().getTime() + printerLeft() * 60000)) + ' ' + ampm(new Date(now().getTime() + printerLeft() * 60000));
+const track = () => D.tracks[S.track];
+const tMode = () => D.timerModes.find(m => m.id === S.tMode);
+const usageLevel = p => p < 50 ? 'ok' : p < 80 ? 'warn' : 'bad';
+
+/* ---------- Bindings: [data-b] text, [data-p] --p (0–1), [data-arc] dash offset ---------- */
+const B = {
+  clock: () => clock(now()), ampm: () => ampm(now()),
+  date: () => { const d = now(); return `${DAY[d.getDay()]}, ${MONTH[d.getMonth()]} ${d.getDate()}`; },
+  dateShort: () => { const d = now(); return `${DAY3[d.getDay()]} ${MON3[d.getMonth()]} ${d.getDate()}`; },
+  cpu: () => Math.round(D.sys.cpu), gpu: () => Math.round(D.sys.gpu), gpuTemp: () => Math.round(D.sys.gpuTemp),
+  ram: () => D.sys.ram.toFixed(1), ramPct: () => Math.round(D.sys.ram / D.sys.ramTotal * 100),
+  vram: () => D.sys.vram.toFixed(1), vramPct: () => Math.round(D.sys.vram / D.sys.vramTotal * 100),
+  down: () => D.sys.down.toFixed(1), up: () => Math.round(D.sys.up),
+  latency: () => Math.round(D.net.latency), jitter: () => D.net.jitter.toFixed(1),
+  nowDl: () => D.net.nowDl.toFixed(1), nowUl: () => D.net.nowUl.toFixed(1),
+  stDl: () => S.st.running ? Math.round(S.st.dl) : D.net.dl, stUl: () => S.st.running ? Math.round(S.st.ul) : D.net.ul,
+  stPing: () => S.st.ping, stWhen: () => S.st.running ? 'Testing now' : 'Tested ' + S.st.when,
+  stBtn: () => S.st.running ? 'Testing…' : 'Run test',
+  fiveReset: () => dur(D.claude.fiveReset - elapsedMin()),
+  nextTitle: () => nextEvent()?.title || 'Nothing else today',
+  nextIn: () => { const e = nextEvent(); if (!e) return 'Free until tomorrow'; const m = e.mins - nowMin(); return m < 1 ? 'Starting now' : `in ${dur(m)}`; },
+  nextWhen: () => { const e = nextEvent(); return e ? `${e.start}, ${e.where}` : ''; },
+  prPct: () => Math.floor(printerPct()), prLeft: () => dur(printerLeft()), prDone: () => doneAt(),
+  prLayer: () => Math.min(D.printer.layers, Math.round(D.printer.layer + (printerPct() - D.printer.pct) / 100 * D.printer.layers)),
+  trTitle: () => track().title, trArtist: () => track().artist, trAlbum: () => track().album,
+  trPos: () => ms(S.pos), trLen: () => ms(track().len), trLeft: () => '-' + ms(track().len - S.pos),
+  timer: () => ms(S.tLeft), tLabel: () => S.tRun ? 'Pause' : (S.tLeft < tMode().min * 60 ? 'Resume' : 'Start'),
+  conn: () => ({ wifi: 'Wi‑Fi', usb: 'USB', off: 'Offline' }[S.conn]),
+  connLong: () => ({ wifi: 'Laptop on Wi‑Fi', usb: 'Laptop on USB', off: 'Laptop offline' }[S.conn]),
+  vol: () => S.vol, gameSession: () => dur(D.games.now.session + elapsedMin())
+};
+const PB = {
+  cpu: () => D.sys.cpu / 100, gpu: () => D.sys.gpu / 100, ram: () => D.sys.ram / D.sys.ramTotal, vram: () => D.sys.vram / D.sys.vramTotal,
+  disk: () => D.sys.disk / 100, five: () => D.claude.five / 100, week: () => D.claude.week / 100,
+  printer: () => printerPct() / 100, music: () => S.pos / track().len, timer: () => 1 - S.tLeft / (tMode().min * 60),
+  st: () => S.st.running ? S.st.p : 1, vol: () => S.vol / 100, latency: () => D.net.latency / 50,
+  sessions: () => S.sessions / 4
+};
+
+/* ---------- Shell ---------- */
+let theme, screen, view, nav;
+const SIZES = { phone: [915, 412], seven: [1024, 600] };
+
+function refresh(root = screen) {
+  root.querySelectorAll('[data-b]').forEach(el => { const f = B[el.dataset.b]; if (f) { const v = String(f()); if (el.textContent !== v) el.textContent = v; } });
+  root.querySelectorAll('[data-p]').forEach(el => { const f = PB[el.dataset.p]; if (f) el.style.setProperty('--p', clamp(f(), 0, 1).toFixed(4)); });
+  root.querySelectorAll('[data-arc]').forEach(el => { const f = PB[el.dataset.arc]; if (f) { const p = clamp(f(), 0, 1); el.style.strokeDashoffset = (100 - p * 100).toFixed(2); el.style.opacity = p < .004 ? 0 : 1; } });
+  root.querySelectorAll('[data-c]').forEach(el => { const f = theme.charts?.[el.dataset.c]; if (f && el.clientWidth) el.innerHTML = f(el); });
+  theme.refresh?.();
+}
+function render() {
+  screen.dataset.page = S.page; screen.dataset.conn = S.conn;
+  nav.innerHTML = theme.nav();
+  view.innerHTML = theme.pages[S.page]();
+  requestAnimationFrame(() => refresh());
+  refresh();
+}
+function go(p) { S.page = p; render(); view.scrollTop = 0; }
+
+function toast(msg) {
+  screen.querySelector('.toast')?.remove();
+  const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  screen.appendChild(t); setTimeout(() => t.classList.add('out'), 1900); setTimeout(() => t.remove(), 2400);
+}
+
+function speedtest() {
+  if (S.st.running || S.conn === 'off') return;
+  S.st = { ...S.st, running: true, p: 0, dl: 0, ul: 0 }; render();
+  const iv = setInterval(() => {
+    S.st.p = Math.min(1, S.st.p + 0.03);
+    S.st.dl = S.st.p < .6 ? 920 * Math.min(1, S.st.p / .3) + (Math.random() - .5) * 60 : 936;
+    S.st.ul = S.st.p < .6 ? 0 : 38 * Math.min(1, (S.st.p - .6) / .25) + (Math.random() - .5) * 4;
+    if (S.st.p >= 1) { clearInterval(iv); D.net.dl = 936; D.net.ul = 39; S.st = { running: false, p: 1, dl: 936, ul: 39, ping: 8, when: 'just now' }; render(); toast('Speed test finished: 936 down, 39 up'); return; }
+    refresh();
+  }, 120);
+}
+
+const A = {
+  go: v => go(v),
+  tab: v => { S.sysTab = v; render(); },
+  play: () => { S.playing = !S.playing; render(); },
+  next: () => { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); },
+  prev: () => { if (S.pos > 5) S.pos = 0; else { S.track = (S.track - 1 + D.tracks.length) % D.tracks.length; S.pos = 0; } render(); },
+  seek: (v, e, el) => { const r = el.getBoundingClientRect(); S.pos = Math.round(clamp((e.clientX - r.left) / r.width, 0, 1) * track().len); refresh(); },
+  tStart: () => { S.tRun = !S.tRun; render(); },
+  tReset: () => { S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  tMode: v => { S.tMode = v; S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  speed: () => speedtest(),
+  game: v => toast(`Launching ${v} on your laptop`),
+  conn: () => { S.conn = { wifi: 'usb', usb: 'off', off: 'wifi' }[S.conn]; if (S.conn === 'off') S.lastSync = clock(now()) + ' ' + ampm(now()); render(); toast({ wifi: 'Connected over Wi‑Fi', usb: 'Connected over USB', off: 'Laptop disconnected' }[S.conn]); },
+  sc: v => {
+    if (S.conn === 'off') { toast('Connect your laptop to use shortcuts'); return; }
+    const m = {
+      mic: () => { S.mic = !S.mic; return S.mic ? 'Microphone muted' : 'Microphone on'; },
+      sound: () => { S.sound = !S.sound; return S.sound ? 'Sound muted' : 'Sound on'; },
+      voldown: () => { S.vol = Math.max(0, S.vol - 10); S.sound = false; return `Volume ${S.vol}%`; },
+      volup: () => { S.vol = Math.min(100, S.vol + 10); S.sound = false; return `Volume ${S.vol}%`; },
+      shot: () => 'Screenshot saved to Pictures', term: () => 'Terminal opened', dl: () => 'Downloads opened', lock: () => 'Laptop locked'
+    };
+    const msg = m[v](); render(); toast(msg);
+  }
+};
+
+function tick() {
+  const live = S.conn !== 'off';
+  if (live) {
+    const s = D.sys, w = (v, a, lo, hi) => clamp(v + (Math.random() - .5) * a, lo, hi);
+    s.cpu = w(s.cpu, 9, 12, 72); s.gpu = w(s.gpu, 8, 30, 80); s.gpuTemp = clamp(44 + s.gpu * .2 + (Math.random() - .5), 40, 70);
+    s.ram = w(s.ram, .2, 17.6, 19.6); s.vram = w(s.vram, .1, 5.8, 6.8); s.down = w(s.down, .6, .2, 4.2); s.up = w(s.up, 60, 60, 480);
+    s.cpuHist.push(s.cpu); s.cpuHist.shift(); s.gpuHist.push(s.gpu); s.gpuHist.shift();
+    const n = D.net; n.latency = Math.random() < .03 ? 30 + Math.random() * 10 : 15 + Math.random() * 4; n.jitter = w(n.jitter, .3, 1.2, 3.4);
+    n.latHist.push(n.latency); n.latHist.shift(); n.nowDl = w(n.nowDl, 3, 4, 28); n.nowUl = w(n.nowUl, .5, .4, 4);
+    if (S.playing) { S.pos++; if (S.pos >= track().len) { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); } }
+  }
+  if (S.tRun) { S.tLeft--; if (S.tLeft <= 0) { S.tRun = false; S.sessions = Math.min(4, S.sessions + (S.tMode === 'focus' ? 1 : 0)); S.tLeft = tMode().min * 60; render(); toast(`${tMode().label} finished`); } }
+  refresh();
+}
+
+function fit() {
+  const dev = document.getElementById('device'), wrap = document.getElementById('device-wrap'), stage = document.getElementById('stage');
+  const [w, h] = SIZES[S.size];
+  screen.style.width = w + 'px'; screen.style.height = h + 'px';
+  const bezel = 22;
+  const sc = Math.min((stage.clientWidth - 16) / (w + bezel), (stage.clientHeight - 16) / (h + bezel), 1.6);
+  dev.style.transform = `scale(${sc})`;
+  wrap.style.width = (w + bezel) * sc + 'px'; wrap.style.height = (h + bezel) * sc + 'px';
+}
+
+function boot(t) {
+  theme = t;
+  screen = document.getElementById('screen');
+  screen.innerHTML = t.frame() + `<div class="offline-banner" role="status"><strong>Laptop not connected.</strong> <span>Showing the last data received. Plug in the USB cable or check that both devices are on the same Wi‑Fi.</span></div>`;
+  view = screen.querySelector('#view'); nav = screen.querySelector('#nav');
+  screen.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]'); if (!el || !screen.contains(el)) return;
+    A[el.dataset.act]?.(el.dataset.v, e, el);
+  });
+  screen.addEventListener('keydown', e => {
+    const el = e.target.closest('[role="button"][data-act]');
+    if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); A[el.dataset.act]?.(el.dataset.v, e, el); }
+  });
+  document.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
+    S.size = b.dataset.size; document.querySelectorAll('[data-size]').forEach(x => x.setAttribute('aria-pressed', x === b)); fit(); render();
+  }));
+  render(); fit();
+  addEventListener('resize', () => { fit(); refresh(); });
+  setInterval(tick, 1000);
+  document.fonts?.ready.then(() => refresh());
+}
+
+window.DP = { D, S, B, PB, A, icon, art, linePath, stepPath, arc, size, clamp, dur, ms, clock, ampm, now, nextEvent, printerPct, printerLeft, track, tMode, usageLevel, toast, render, refresh, boot, DAY, DAY3, MONTH, MON3, START };
+})();
+
+</script>
+<script>
+(() => {
+const { D, S, icon, art, linePath, size, clamp, track, tMode, nextEvent, now, printerPct } = DP;
+const TOP = [['home', 'Home'], ['system', 'System'], ['claude', 'Claude'], ['calendar', 'Calendar'], ['weather', 'Weather'], ['music', 'Music']];
+const BOT = [['printer', 'Printer'], ['timer', 'Timer'], ['games', 'Games'], ['github', 'GitHub'], ['shortcuts', 'Keys']];
+const COL = { w: '#EEF2F5', gy: '#74808E', g: '#3BE27A', c: '#37D6FF', m: '#FF5BE0', a: '#FFB020', r: '#FF4444', fr: '#263140' };
+
+/* ---------- Instruments ---------- */
+const P = (cx, cy, r, a) => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)];
+const arcD = (cx, cy, r, a0, a1) => { const [x0, y0] = P(cx, cy, r, a0), [x1, y1] = P(cx, cy, r, a1); return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`; };
+const STD = [[0, 70, COL.g], [70, 90, COL.a], [90, 100, COL.r]];
+
+/* Engine-style dial: 240° scale, zone arcs, sweep, needle, magenta target bug, boxed digital readout */
+function dial(v, o = {}) {
+  const min = o.min ?? 0, max = o.max ?? 100, zones = o.zones ?? STD, cx = 60, cy = 56, r = 40, a0 = -120, a1 = 120;
+  const A = x => a0 + (clamp(x, min, max) - min) / (max - min) * (a1 - a0);
+  const zc = (zones.find(([f, t]) => v >= f && v <= t) || zones[zones.length - 1])[2];
+  let s = `<path d="${arcD(cx, cy, r, a0, a1)}" fill="none" stroke="${COL.w}" stroke-width="1.6"/>`;
+  zones.forEach(([f, t, c]) => { if (c !== COL.g) s += `<path d="${arcD(cx, cy, r + 4, A(f), A(t))}" fill="none" stroke="${c}" stroke-width="3"/>`; });
+  for (let i = 0; i <= 10; i++) { const a = a0 + i * 24, [x0, y0] = P(cx, cy, r, a), [x1, y1] = P(cx, cy, r - (i % 5 ? 4 : 7), a); s += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${COL.w}" stroke-width="1.4"/>`; }
+  [[min, a0], [max, a1]].forEach(([lab, a]) => { const [x, y] = P(cx, cy, r - 15, a); s += `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="middle" font-size="7.5" fill="${COL.gy}">${lab}</text>`; });
+  if (v > min) { const [x0, y0] = P(cx, cy, r - 1, a0), [x1, y1] = P(cx, cy, r - 1, A(v)); s += `<path d="M${cx} ${cy} L${x0.toFixed(1)} ${y0.toFixed(1)} A${r - 1} ${r - 1} 0 ${A(v) - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${zc}" fill-opacity=".14"/>`; }
+  if (o.target != null) { const a = A(o.target), [x, y] = P(cx, cy, r + 5, a), [xl, yl] = P(cx, cy, r + 11, a - 5), [xr, yr] = P(cx, cy, r + 11, a + 5); s += `<path d="M${x.toFixed(1)} ${y.toFixed(1)} L${xl.toFixed(1)} ${yl.toFixed(1)} L${xr.toFixed(1)} ${yr.toFixed(1)}Z" fill="${COL.m}"/>`; }
+  const [nx, ny] = P(cx, cy, r - 3, A(v));
+  s += `<line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="${COL.w}" stroke-width="2.4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="2.6" fill="${COL.w}"/>`;
+  const txt = (o.fmt ? o.fmt(v) : Math.round(v)) + (o.unit || ''), bw = Math.max(30, txt.length * 7.4 + 10);
+  s += `<rect x="${cx - bw / 2}" y="${cy + 14}" width="${bw}" height="17" fill="#03060A" stroke="${COL.w}" stroke-width="1.2" rx="1"/><text x="${cx}" y="${cy + 27}" text-anchor="middle" font-family="B612 Mono" font-size="12.5" fill="${zc}">${txt}</text>`;
+  if (o.label) s += `<text x="${cx}" y="${cy + 46}" text-anchor="middle" font-size="8.5" font-weight="700" letter-spacing=".9" fill="${COL.w}">${o.label}</text>`;
+  if (o.sub) s += `<text x="${cx}" y="${cy + 57}" text-anchor="middle" font-size="7.5" fill="${COL.gy}">${o.sub}</text>`;
+  return `<svg viewBox="0 0 120 ${o.sub ? 118 : o.label ? 108 : 92}" role="img" aria-label="${o.label || 'Gauge'} ${txt}">${s}</svg>`;
+}
+
+const V = {
+  cpu: () => D.sys.cpu, gpu: () => D.sys.gpu, ram: () => D.sys.ram / D.sys.ramTotal * 100, vram: () => D.sys.vram / D.sys.vramTotal * 100,
+  five: () => D.claude.five, week: () => D.claude.week, latency: () => D.net.latency, printer: () => printerPct(),
+  nozzle: () => D.printer.nozzle, bed: () => D.printer.bed, chamber: () => D.printer.chamber
+};
+const DCFG = {
+  cpu: { label: 'CPU', unit: '%' }, gpu: { label: 'GPU', unit: '%', sub: () => `${Math.round(D.sys.gpuTemp)}°C` },
+  ram: { label: 'RAM', unit: '%', sub: () => `${D.sys.ram.toFixed(1)}/${D.sys.ramTotal} GB` }, vram: { label: 'VRAM', unit: '%', sub: () => `${D.sys.vram.toFixed(1)}/${D.sys.vramTotal} GB` },
+  five: { label: '5-HOUR', unit: '%', zones: [[0, 50, COL.g], [50, 80, COL.a], [80, 100, COL.r]] }, week: { label: 'WEEKLY', unit: '%', zones: [[0, 50, COL.g], [50, 80, COL.a], [80, 100, COL.r]] },
+  latency: { label: 'LATENCY', unit: ' ms', zones: [[0, 40, COL.g], [40, 80, COL.a], [80, 100, COL.r]] },
+  printer: { label: 'PROGRESS', unit: '%', zones: [[0, 100, COL.g]], target: 100, fmt: v => Math.floor(v) },
+  nozzle: { label: 'NOZZLE', unit: '°', min: 0, max: 300, zones: [[0, 260, COL.g], [260, 300, COL.a]], target: D.printer.nozzleT },
+  bed: { label: 'BED', unit: '°', min: 0, max: 120, zones: [[0, 100, COL.g], [100, 120, COL.a]], target: D.printer.bedT },
+  chamber: { label: 'CHAMBER', unit: '°', min: 0, max: 60, zones: [[0, 45, COL.g], [45, 60, COL.a]] }
+};
+const dialEl = (k, extra = {}) => `<div class="dial" data-c="dial" data-k="${k}" ${extra.nolabel ? 'data-nl="1"' : ''}></div>`;
+
+function trend(el, series, lo, hi) {
+  const [w, h] = size(el);
+  let g = ''; for (let i = 1; i < 4; i++) g += `<line x1="0" x2="${w}" y1="${(h * i / 4).toFixed(1)}" y2="${(h * i / 4).toFixed(1)}" stroke="${COL.fr}" stroke-dasharray="2 4"/>`;
+  for (let i = 1; i < 6; i++) g += `<line y1="0" y2="${h}" x1="${(w * i / 6).toFixed(1)}" x2="${(w * i / 6).toFixed(1)}" stroke="${COL.fr}" stroke-dasharray="2 4"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${g}<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" fill="none" stroke="${COL.fr}"/>${series.map(([v, c]) => `<path d="${linePath(v, w, h, lo, hi, 3)}" fill="none" stroke="${c}" stroke-width="1.8"/>`).join('')}</svg>`;
+}
+
+/* Horizontal time tape for the calendar */
+function timeTape(el) {
+  const [w, h] = size(el), H0 = 7, H1 = 19, X = m => (m / 60 - H0) / (H1 - H0) * w, nm = now().getHours() * 60 + now().getMinutes(), n = nextEvent();
+  const len = { 'Team standup': 15, 'Lunch with Sam': 60, 'Design review': 45 };
+  let s = `<line x1="0" x2="${w}" y1="${h - 18}" y2="${h - 18}" stroke="${COL.w}" stroke-width="1.2"/>`;
+  for (let hr = H0; hr <= H1; hr++) { const x = X(hr * 60); s += `<line x1="${x}" x2="${x}" y1="${h - 18}" y2="${h - 18 + (hr % 2 ? 4 : 7)}" stroke="${COL.w}" stroke-width="1.2"/>`; if (!(hr % 2)) s += `<text x="${x}" y="${h - 1}" text-anchor="middle" font-size="10" fill="${COL.gy}">${String(hr).padStart(2, '0')}</text>`; }
+  for (let hr = H0; hr < H1; hr++) for (const q of [15, 30, 45]) { const x = X(hr * 60 + q); s += `<line x1="${x}" x2="${x}" y1="${h - 18}" y2="${h - 16}" stroke="${COL.gy}"/>`; }
+  D.cal.today.forEach(e => { const x0 = X(e.mins), x1 = Math.max(X(e.mins + (len[e.title] || 30)), x0 + 5), c = e === n ? COL.m : e.mins + (len[e.title] || 30) < nm ? COL.gy : COL.c;
+    s += `<rect x="${x0}" y="${h - 32}" width="${x1 - x0}" height="9" fill="${c}" fill-opacity=".85"/><text x="${x0}" y="${h - 38}" font-size="10" font-weight="700" fill="${c}">${e.title.toUpperCase()}</text>`; });
+  const xn = X(nm); s += `<path d="M${xn} ${h - 18} l-6 -10 h12z" fill="${COL.g}"/><line x1="${xn}" x2="${xn}" y1="4" y2="${h - 28}" stroke="${COL.g}" stroke-dasharray="3 3"/><text x="${xn + 6}" y="12" font-family="B612 Mono" font-size="11" fill="${COL.g}">${DP.clock(now())}</text>`;
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Today's schedule">${s}</svg>`;
+}
+
+/* Vertical temperature tape (like an altitude tape) */
+function tempTape(el) {
+  const [w, h] = size(el), lo = 30, hi = 80, Y = t => 8 + (h - 16) * (1 - (t - lo) / (hi - lo)), wx = D.wx, x = w / 2 + 4;
+  let s = `<line x1="${x}" x2="${x}" y1="${Y(hi)}" y2="${Y(lo)}" stroke="${COL.w}" stroke-width="1.2"/>`;
+  for (let t = lo; t <= hi; t += 5) s += `<line x1="${x}" x2="${x + (t % 10 ? 6 : 10)}" y1="${Y(t)}" y2="${Y(t)}" stroke="${COL.w}" stroke-width="1.2"/>${t % 10 ? '' : `<text x="${x + 14}" y="${Y(t) + 3.5}" font-size="10" font-family="B612 Mono" fill="${COL.gy}">${t}</text>`}`;
+  const bug = (t, c, lab) => `<path d="M${x - 2} ${Y(t)} l-8 -5 v10z" fill="${c}"/><text x="${x - 13}" y="${Y(t) + 3.5}" text-anchor="end" font-size="9" font-weight="700" fill="${c}">${lab} ${t}</text>`;
+  s += bug(wx.days[0][2], COL.c, 'HI') + bug(wx.days[0][3], COL.c, 'LO');
+  s += `<rect x="${x - 4}" y="${Y(wx.temp) - 12}" width="46" height="24" fill="#03060A" stroke="${COL.w}" stroke-width="1.4"/><text x="${x + 19}" y="${Y(wx.temp) + 5.5}" text-anchor="middle" font-family="B612 Mono" font-size="16" fill="${COL.g}">${wx.temp}°</text>`;
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Temperature ${wx.temp} degrees, high ${wx.days[0][2]}, low ${wx.days[0][3]}">${s}</svg>`;
+}
+
+/* Compass rose with wind arrow */
+function rose(el) {
+  const [w, h] = size(el), cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 16, from = 225;
+  let s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COL.w}" stroke-width="1.2"/>`;
+  for (let a = 0; a < 360; a += 10) { const [x0, y0] = P(cx, cy, r, a), [x1, y1] = P(cx, cy, r - (a % 30 ? 5 : 9), a); s += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${COL.w}" stroke-width="1.1"/>`; }
+  [['N', 0], ['E', 90], ['S', 180], ['W', 270]].forEach(([l, a]) => { const [x, y] = P(cx, cy, r - 20, a); s += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${a ? COL.w : COL.c}">${l}</text>`; });
+  const [tx, ty] = P(cx, cy, r - 4, from + 180), [bx, by] = P(cx, cy, r - 4, from), [lx, ly] = P(cx, cy, r - 18, from + 180 - 10), [rx, ry] = P(cx, cy, r - 18, from + 180 + 10);
+  s += `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="${COL.g}" stroke-width="2.4"/><path d="M${tx.toFixed(1)} ${ty.toFixed(1)} L${lx.toFixed(1)} ${ly.toFixed(1)} L${rx.toFixed(1)} ${ry.toFixed(1)}Z" fill="${COL.g}"/>`;
+  s += `<rect x="${cx - 34}" y="${cy + 16}" width="68" height="20" fill="#03060A" stroke="${COL.w}" stroke-width="1.2"/><text x="${cx}" y="${cy + 30.5}" text-anchor="middle" font-family="B612 Mono" font-size="12" fill="${COL.g}">SW ${D.wx.wind} MPH</text>`;
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Wind from the southwest at ${D.wx.wind} miles per hour">${s}</svg>`;
+}
+
+/* ---------- Pages ---------- */
+const fr = (title, inner, st = '', cls = '') => `<div class="fr ${cls}" style="${st}"><span class="ft">${title}</span>${inner}</div>`;
+const leader = (l, r, c = 'grn') => `<div class="${c}"><span>${l}</span><i></i><span>${r}</span></div>`;
+
+const pages = {
+  home: () => {
+    const n = nextEvent();
+    return `<div class="g" style="grid-template-columns:1fr 1.25fr 1.15fr">
+      ${fr('Time', `<div class="mono wht" style="font-size:64px;line-height:1;margin-top:8px"><span data-b="clock"></span><span style="font-size:20px;color:var(--gy);margin-left:6px" data-b="ampm"></span></div><div class="cap" style="margin-top:6px" data-b="date"></div>
+        <div class="memo" style="margin-top:16px">${leader('FOCUS', '<span data-b="timer"></span>', 'wht')}${leader('PRINT ETA', '<span data-b="prDone"></span>', 'mag')}${leader('GAME', '<span data-b="gameSession"></span>', 'cyn')}</div>
+        <div style="margin-top:auto;border-top:1px solid var(--fr);padding-top:8px" role="button" tabindex="0" data-act="go" data-v="calendar"><div class="cap mag">Next</div><div class="mag" style="font-size:15px;font-weight:700;margin-top:3px">${n ? n.title.toUpperCase() : 'NONE TODAY'}</div><div class="mono mag" style="margin-top:2px;text-transform:uppercase">${n ? `<span data-b="nextIn"></span>, ${n.start}` : ''}</div></div>`)}
+      ${fr('Engines', `<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;min-height:0">${dialEl('cpu')}${dialEl('gpu')}${dialEl('five')}${dialEl('printer')}</div>`)}
+      ${fr('Memo', `<div class="memo" style="margin-top:4px">${leader('PRINTER', '<span data-b="prPct"></span>%, DONE <span data-b="prDone"></span>')}${leader('CLAUDE 5H', D.claude.five + '%, RST <span data-b="fiveReset"></span>')}${leader('CLAUDE WEEK', D.claude.week + '%', 'amb')}${leader('WX', `${D.wx.temp}°F ${D.wx.cond.toUpperCase()}`)}${leader('WIND', 'SW ' + D.wx.wind + ' MPH')}${leader('MUSIC', '<span data-b="trTitle"></span>', 'cyn')}${leader('LINK', '<span data-b="conn"></span>', S.conn === 'off' ? 'amb' : 'grn')}</div>
+        <div class="row" style="margin-top:auto;gap:6px"><button class="btn" data-act="play" aria-label="${S.playing ? 'Pause' : 'Play'}">${icon(S.playing ? 'pause' : 'play')}</button><button class="btn" style="flex:1" data-act="go" data-v="system">System page</button></div>`)}
+    </div>`;
+  },
+
+  system: () => {
+    const tabs = `<div class="tabs"><button class="btn" data-act="tab" data-v="pc" aria-pressed="${S.sysTab === 'pc'}">Laptop</button><button class="btn" data-act="tab" data-v="net" aria-pressed="${S.sysTab === 'net'}">Internet</button></div>`;
+    if (S.sysTab === 'pc') return `<div class="g" style="grid-template-rows:1.15fr 1fr">
+      ${fr('Laptop', `<div style="position:absolute;top:-12px;right:8px">${tabs}</div><div class="dials" style="flex:1;min-height:0;margin-top:4px">${dialEl('cpu')}${dialEl('gpu')}${dialEl('ram')}${dialEl('vram')}</div>`)}
+      ${fr('Trend <b>CPU</b> <span style="color:var(--g)">GPU</span>, 60 s', `<div class="row cap" style="position:absolute;top:-7px;right:8px;background:#050A10;padding:0 5px"><span class="mono grn" style="font-size:11px"><span data-b="down"></span> MB/S DN</span><span class="mono grn" style="font-size:11px"><span data-b="up"></span> KB/S UP</span></div>
+        <div class="chart" data-c="cpugpu" style="margin-top:2px"></div><div class="row cap" style="margin-top:6px"><span>${D.sys.cpuName} / ${D.sys.gpuName}</span><span class="sp"></span><span>Disk <span class="grn mono">${D.sys.disk}%</span></span></div>`)}
+    </div>`;
+    const n = D.net;
+    return `<div class="g" style="grid-template-columns:.9fr 1fr 1.25fr;grid-template-rows:1.1fr 1fr">
+      ${fr('Link', `<div style="position:absolute;top:-12px;right:8px">${tabs}</div>${dialEl('latency')}<div class="cap" style="text-align:center">Jitter <span class="mono grn"><span data-b="jitter"></span> ms</span> Loss <span class="mono grn">${n.loss}%</span></div>`)}
+      ${fr('Status', `<div style="font-size:26px;font-weight:700;margin-top:6px" class="${S.conn === 'off' ? 'amb' : 'grn'}">${S.conn === 'off' ? 'NO DATA' : 'ONLINE'}</div><div class="memo" style="margin-top:12px">${leader('UPTIME', n.uptime.toUpperCase(), 'wht')}${leader('LAST DROP', '3D AGO', 'wht')}${leader('TODAY', n.today + ' GB')}${leader('MONTH', n.month.toFixed(0) + ' GB')}</div>`)}
+      ${fr('Speed test', `<div class="row" style="gap:14px;margin-top:8px"><div><div class="cap">Down</div><span class="ro" style="font-size:26px;margin-top:4px"><span data-b="stDl"></span></span></div><div><div class="cap">Up</div><span class="ro" style="font-size:26px;margin-top:4px"><span data-b="stUl"></span></span></div><div class="cap" style="align-self:flex-end">Mbps</div></div>
+        <div class="cap" style="margin-top:10px"><span data-b="stWhen"></span>, ping <span class="mono grn"><span data-b="stPing"></span> ms</span></div><div class="cap" style="margin-top:3px">Now <span class="mono grn"><span data-b="nowDl"></span>/<span data-b="nowUl"></span></span></div>
+        ${S.st.running ? '<div class="hbar" data-p="st" style="margin-top:8px"><i></i></div>' : ''}<button class="btn" style="margin-top:auto" data-act="speed" ${S.st.running ? 'disabled' : ''}><span data-b="stBtn"></span></button>`)}
+      ${fr('Latency trend, 2 min, 0 to 50 ms', `<div class="chart" data-c="lat"></div>`, 'grid-column:1/-1')}
+    </div>`;
+  },
+
+  claude: () => {
+    const c = D.claude, mx = Math.max(...c.days);
+    return `<div class="g" style="grid-template-columns:1fr 1fr 1.15fr;grid-template-rows:1.2fr 1fr">
+      ${fr('Limit', `${dialEl('five')}<div class="cap" style="text-align:center">Reset in <span class="mono grn" data-b="fiveReset"></span></div>`)}
+      ${fr('Limit', `${dialEl('week')}<div class="cap" style="text-align:center">Reset <span class="mono amb">${c.weekReset.toUpperCase()}</span></div>`)}
+      ${fr('Today', `<div class="memo" style="margin-top:4px">${leader('TOKENS', c.tokens)}${leader('OUTPUT', c.output)}${leader('MESSAGES', c.messages)}${leader('LAST HOUR', c.lastHour)}</div><div class="memo" style="margin-top:auto">${c.models.map(([m, v]) => leader(m.toUpperCase(), v.toFixed(1) + 'M', 'cyn')).join('')}</div>`, 'grid-column:3;grid-row:1/3')}
+      ${fr(`Tokens, 7 days, peak ${mx.toFixed(1)}M`, `<div class="bars" style="margin-top:6px">${c.days.map((v, i) => `<div class="${i === 6 ? 'hi' : ''}"><span class="mono" style="font-size:10px;color:${i === 6 ? COL.g : COL.c}">${v.toFixed(0)}</span><i style="--v:${v / mx * 80}"></i>${c.labels[i].toUpperCase().slice(0, 3)}</div>`).join('')}</div>`, 'grid-column:1/3;grid-row:2')}
+    </div>`;
+  },
+
+  calendar: () => {
+    const n = nextEvent(), nm = now().getHours() * 60 + now().getMinutes();
+    return `<div class="g" style="grid-template-rows:auto 1fr">
+      ${fr('Today, <b data-b="date"></b>', `<div data-c="tape" style="height:74px;margin-top:2px"></div>`)}
+      <div class="g" style="grid-template-columns:1.6fr 1fr">
+        ${fr('Plan', `<table class="tbl"><thead><tr><th>Time</th><th>Event</th><th>Where</th><th class="r">To go</th></tr></thead><tbody>
+          ${D.cal.today.map(e => `<tr class="${e === n ? 'nx' : e.mins + 45 < nm ? 'past' : ''}"><td>${e.start}</td><td>${e.title.toUpperCase()}</td><td>${e.where.toUpperCase()}</td><td class="r">${e === n ? '<span data-b="nextIn"></span>' : e.mins < nm ? 'DONE' : DP.dur(e.mins - nm)}</td></tr>`).join('')}</tbody></table>`)}
+        ${fr('Later', `<table class="tbl"><tbody>${D.cal.later.map(e => `<tr><td class="cyn">${e.day.slice(0, 3).toUpperCase()}</td><td>${e.title.toUpperCase()}</td><td class="r gry">${e.start}</td></tr>`).join('')}</tbody></table>`)}
+      </div></div>`;
+  },
+
+  weather: () => {
+    const w = D.wx;
+    return `<div class="g" style="grid-template-columns:.7fr 1fr 1.25fr;grid-template-rows:1fr auto">
+      ${fr('Temp °F', `<div data-c="ttape" style="flex:1;min-height:0"></div>`)}
+      ${fr(`Wind, ${w.city}`, `<div data-c="rose" style="flex:1;min-height:0"></div><div class="cap" style="text-align:center">${w.cond}, feels <span class="mono grn">${w.feels}°</span>, RH <span class="mono grn">${w.humidity}%</span></div>`)}
+      ${fr('Forecast', `<table class="tbl"><thead><tr><th>Day</th><th></th><th class="r">Hi / Lo</th><th class="r">Rain</th></tr></thead><tbody>${w.days.map(([d, i, h, l, p]) => `<tr><td class="wht">${d.toUpperCase()}</td><td style="font-size:15px;color:${i === 'rain' ? COL.c : COL.w}">${icon(i)}</td><td class="r grn">${h}° / ${l}°</td><td class="r ${p > 50 ? 'amb' : 'cyn'}">${p ? p + '%' : '—'}</td></tr>`).join('')}</tbody></table>`)}
+      ${fr('Next 12 hours', `<div class="row mono" style="justify-content:space-between;font-size:12px">${w.hours.map(([h, t]) => `<div style="text-align:center"><div class="gry" style="font:700 9.5px B612;letter-spacing:.06em">${h.toUpperCase()}</div><div class="grn">${t}°</div></div>`).join('')}</div>`, 'grid-column:1/-1')}
+    </div>`;
+  },
+
+  music: () => {
+    const t = track();
+    return `<div class="g" style="grid-template-columns:auto 1fr">
+      <div class="artfr" style="height:100%;aspect-ratio:1">${art(t.hue, S.track + 1)}</div>
+      ${fr('Audio, Spotify', `<div class="cap" style="margin-top:8px">Track</div><div style="font-size:24px;font-weight:700;margin-top:4px;line-height:1.1" data-b="trTitle"></div><div class="grn" style="font-size:15px;margin-top:6px" data-b="trArtist"></div><div class="gry" data-b="trAlbum"></div>
+        <div data-c="seek" data-act="seek" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="${t.len}" style="height:38px;margin-top:auto;cursor:pointer"></div>
+        <div class="row mono" style="font-size:13px;margin-top:2px"><span class="grn" data-b="trPos"></span><span class="sp"></span><span class="gry" data-b="trLen"></span></div>
+        <div class="row" style="gap:8px;margin-top:12px"><button class="btn" style="flex:1;height:44px" data-act="prev" aria-label="Previous track">${icon('prev')}</button><button class="btn go" style="flex:1.4;height:44px" data-act="play" aria-label="${S.playing ? 'Pause' : 'Play'}">${icon(S.playing ? 'pause' : 'play')}${S.playing ? 'Pause' : 'Play'}</button><button class="btn" style="flex:1;height:44px" data-act="next" aria-label="Next track">${icon('next')}</button></div>`)}
+    </div>`;
+  },
+
+  printer: () => {
+    const p = D.printer;
+    return `<div class="g" style="grid-template-columns:1fr 1.6fr;grid-template-rows:1fr auto">
+      ${fr(`${p.name}, <b>${p.status}</b>`, `${dialEl('printer')}<div class="memo" style="margin-top:4px">${leader('JOB', p.job.toUpperCase(), 'wht')}${leader('LAYER', '<span data-b="prLayer"></span>/' + p.layers)}${leader('REMAIN', '<span data-b="prLeft"></span>')}${leader('DONE AT', '<span data-b="prDone"></span>', 'mag')}</div>`, 'grid-row:1/3')}
+      ${fr('Temps, magenta = target', `<div class="dials" style="flex:1;min-height:0">${dialEl('nozzle')}${dialEl('bed')}${dialEl('chamber')}</div>`)}
+      ${fr(`AMS, ${p.speed.toLowerCase()} speed`, `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">${p.ams.map((a, i) => `<div class="row" style="gap:8px;padding:6px 8px;border-radius:3px;box-shadow:inset 0 0 0 ${a.active ? '1.5px var(--c)' : '1px var(--fr)'}"><span style="width:16px;height:16px;border-radius:50%;background:${a.c};box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)"></span><span class="mono ${a.active ? 'cyn' : 'wht'}" style="font-size:11.5px">${i + 1} ${a.t}</span>${a.active ? '<span class="cap cyn" style="margin-left:auto">Feed</span>' : ''}</div>`).join('')}</div>`)}
+    </div>`;
+  },
+
+  timer: () => `<div class="g" style="grid-template-columns:1.6fr 1fr">
+      ${fr(`Timer, <b>${tMode().label}</b>`, `<div data-c="tdial" style="flex:1;min-height:0"></div>`)}
+      ${fr('Mode', `<div style="display:grid;gap:6px;margin-top:4px">${D.timerModes.map(m => `<button class="btn" style="justify-content:space-between" data-act="tMode" data-v="${m.id}" aria-pressed="${m.id === S.tMode}">${m.label}<span class="mono">${m.min}:00</span></button>`).join('')}</div>
+        <div class="row" style="gap:6px;margin-top:12px"><button class="btn go" style="flex:1;height:44px" data-act="tStart"><span data-b="tLabel"></span></button><button class="btn" style="height:44px" data-act="tReset" aria-label="Reset">${icon('reset')}</button></div>
+        <div class="cap" style="margin-top:auto">Focus sessions <span class="mono grn">${S.sessions}/4</span></div>`)}
+    </div>`,
+
+  games: () => {
+    const g = D.games.now;
+    return `<div class="g" style="grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr">
+      <div class="artfr" style="height:118px">${art(g.hue, 3, { w: 280 })}</div>
+      ${fr('Now playing', `<div style="font-size:22px;font-weight:700;margin-top:6px">${g.title.toUpperCase()}</div><div class="memo" style="margin-top:auto">${leader('SESSION', '<span data-b="gameSession"></span>')}${leader('TOTAL', g.total + ' H', 'wht')}${leader('FRIENDS IN GAME', g.friends, 'cyn')}</div>`)}
+      ${fr('Library', `<table class="tbl"><thead><tr><th>Title</th><th class="r">Hours</th><th class="r"></th></tr></thead><tbody>${D.games.recent.map(([n, h]) => `<tr><td class="wht">${n.toUpperCase()}</td><td class="r grn">${h}</td><td class="r" style="width:90px"><button class="btn" style="height:22px;padding:0 10px;font-size:10px" data-act="game" data-v="${n}">Launch</button></td></tr>`).join('')}</tbody></table>`, 'grid-column:1/-1')}
+    </div>`;
+  },
+
+  github: () => {
+    const g = D.gh, mx = Math.max(...g.week), td = DP.START.getDay();
+    return `<div class="g" style="grid-template-columns:.8fr 1fr 1.1fr;grid-template-rows:auto 1fr">
+      ${fr(`Contributions, ${g.total} in 12 months`, `<div data-c="heat" style="margin-top:4px"></div>`, 'grid-column:1/-1')}
+      ${fr('Streak', `<div class="mono grn" style="font-size:64px;line-height:1;margin-top:6px">${g.streak}<span class="cap" style="margin-left:6px">days</span></div><div class="memo" style="margin-top:auto">${leader('LONGEST', g.longest + ' D', 'wht')}${leader('BEST', g.best + ' ' + g.bestDay.toUpperCase(), 'wht')}</div>`)}
+      ${fr(`This week, <b>${g.weekTotal}</b> <span style="color:var(--g)">+${g.delta}</span>`, `<div class="bars" style="margin-top:6px">${g.week.map((v, i) => `<div class="${i === td ? 'hi' : ''}"><span class="mono" style="font-size:10px;color:${i === td ? COL.g : COL.c}">${i > td ? '' : v}</span><i style="--v:${(i > td ? 0 : v) / mx * 78}"></i>${'SMTWTFS'[i]}</div>`).join('')}</div>`)}
+      ${fr('Top repos', `<table class="tbl"><tbody>${g.repos.map(([r, n]) => `<tr><td class="wht">${r}</td><td class="r grn">${n}</td></tr>`).join('')}</tbody></table>`)}
+    </div>`;
+  },
+
+  shortcuts: () => `<div class="g sc">${D.shortcuts.map(s => {
+    const on = (s.id === 'mic' && S.mic) || (s.id === 'sound' && S.sound);
+    const ic = s.id === 'mic' && S.mic ? 'micOff' : s.id === 'sound' && S.sound ? 'speakerOff' : s.icon;
+    const label = s.id === 'mic' ? (S.mic ? 'Mic muted' : 'Mute mic') : s.id === 'sound' ? (S.sound ? 'Sound muted' : 'Mute sound') : s.label;
+    return `<button class="scb ${on ? 'on' : ''}" data-act="sc" data-v="${s.id}" aria-pressed="${on}">${icon(ic)}${label}${s.id.startsWith('vol') ? `<small>VOL ${S.vol}%</small>` : ''}</button>`;
+  }).join('')}</div>`
+};
+
+const charts = {
+  dial: el => { const k = el.dataset.k, c = { ...DCFG[k] }; if (typeof c.sub === 'function') c.sub = c.sub(); return dial(V[k](), c); },
+  cpugpu: el => trend(el, [[D.sys.gpuHist, COL.g], [D.sys.cpuHist, COL.c]], 0, 100),
+  lat: el => trend(el, [[D.net.latHist, COL.g]], 0, 50),
+  tape: timeTape, ttape: tempTape, rose,
+  seek: el => { const [w, h] = size(el), p = S.pos / track().len; let s = `<line x1="0" x2="${w}" y1="${h - 10}" y2="${h - 10}" stroke="${COL.w}" stroke-width="1.2"/>`;
+    for (let i = 0; i <= 40; i++) { const x = i / 40 * w; s += `<line x1="${x}" x2="${x}" y1="${h - 10}" y2="${h - 10 + (i % 10 ? 4 : 8)}" stroke="${i / 40 <= p ? COL.g : COL.w}" stroke-width="1.2"/>`; }
+    s += `<line x1="0" x2="${p * w}" y1="${h - 10}" y2="${h - 10}" stroke="${COL.g}" stroke-width="3"/><path d="M${p * w} ${h - 12} l-6 -10 h12z" fill="${COL.c}"/>`;
+    return `<svg viewBox="0 0 ${w} ${h}">${s}</svg>`; },
+  tdial: el => { const [w, h] = size(el), cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 12, tot = tMode().min * 60, frac = S.tLeft / tot;
+    let s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COL.fr}" stroke-width="1.2"/>`;
+    for (let i = 0; i < 60; i++) { const [x0, y0] = P(cx, cy, r, i * 6), [x1, y1] = P(cx, cy, r - (i % 5 ? 5 : 11), i * 6); s += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${i / 60 < frac ? COL.g : COL.gy}" stroke-width="${i % 5 ? 1.2 : 2}"/>`; }
+    if (frac > 0.002 && frac < 1) { const [ex, ey] = P(cx, cy, r - 16, frac * 360); s += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4" fill="${COL.m}"/>`; }
+    s += `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-family="B612 Mono" font-size="${Math.round(r * .42)}" fill="${S.tRun ? COL.g : COL.w}">${DP.ms(S.tLeft)}</text><text x="${cx}" y="${cy + 14 + r * .28}" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="1" fill="${COL.gy}">${S.tRun ? 'RUNNING' : 'STANDBY'}</text>`;
+    return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Timer ${DP.ms(S.tLeft)}">${s}</svg>`; },
+  heat: el => {
+    const g = D.gh, w = el.clientWidth, lw = 24, cw = (w - lw) / 53, cs = cw - 2.4, top = 13, H = top + 7 * cw;
+    const f = v => v === 0 ? [COL.fr, .6] : v < 4 ? [COL.g, .25] : v < 10 ? [COL.g, .5] : v < 20 ? [COL.g, .78] : [COL.g, 1];
+    let s = g.months.map(m => `<text x="${lw + m.i * cw}" y="9" font-size="9" fill="${COL.gy}">${m.label.toUpperCase()}</text>`).join('') + ['MON', 'WED', 'FRI'].map((d, i) => `<text x="0" y="${top + (1 + i * 2) * cw + cs * .78}" font-size="8.5" fill="${COL.gy}">${d}</text>`).join('');
+    g.weeks.forEach((c, x) => c.forEach((v, y) => { if (v == null) return; const [cl, o] = f(v); s += `<rect x="${(lw + x * cw).toFixed(1)}" y="${(top + y * cw).toFixed(1)}" width="${cs.toFixed(1)}" height="${cs.toFixed(1)}" fill="${cl}" fill-opacity="${o}"${x === 52 && y === DP.START.getDay() ? ` stroke="${COL.m}" stroke-width="1.5"` : ''}/>`; }));
+    return `<svg viewBox="0 0 ${w} ${H}" style="width:100%;height:auto" role="img" aria-label="Contribution calendar for the last year">${s}</svg>`;
+  }
+};
+
+const keys = list => list.map(([id, l]) => `<button class="sk" data-act="go" data-v="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+const nav = () => keys(TOP);
+let scr;
+function refresh() {
+  scr = scr || document.getElementById('screen');
+  const bot = scr.querySelector('#bot'); const html = keys(BOT) + `<button class="stat" data-act="conn" aria-label="Connection status. Tap to preview other states"><span class="mono" data-b="clock"></span><span class="lk">LINK <span data-b="conn"></span></span></button>`;
+  if (bot && bot.dataset.pg !== S.page + S.conn) { bot.innerHTML = html; bot.dataset.pg = S.page + S.conn; bot.querySelectorAll('[data-b]').forEach(el => el.textContent = DP.B[el.dataset.b]()); }
+  else if (bot) bot.querySelectorAll('[data-b]').forEach(el => { const v = String(DP.B[el.dataset.b]()); if (el.textContent !== v) el.textContent = v; });
+}
+
+DP.boot({ frame: () => `<div class="cw"><nav id="nav" class="keys top" aria-label="Pages"></nav><main id="view" class="view"></main><nav id="bot" class="keys bot" aria-label="More pages"></nav></div>`, nav, pages, charts, refresh });
+})();
+
+</script>
+</body>
+</html>

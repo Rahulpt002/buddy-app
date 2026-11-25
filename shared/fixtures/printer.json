@@ -1,0 +1,54 @@
+{
+  "status": "ok",
+  "message": null,
+  "kind": "bambu",
+  "name": "X1 Carbon",
+  "model": "X1C",
+  "state": "printing",
+  "job": {
+    "name": "Desk_Organizer",
+    "progress_pct": 47.0,
+    "remaining_min": 48,
+    "layer": 112,
+    "total_layers": 240,
+    "speed": "standard"
+  },
+  "temps": {
+    "nozzle": 220.0,
+    "nozzle_target": 220.0,
+    "bed": 55.0,
+    "bed_target": 55.0,
+    "chamber": 34.0
+  },
+  "ams": [
+    {
+      "slot": 0,
+      "type": "PLA",
+      "color": "#F1F1EE",
+      "name": "White",
+      "active": false
+    },
+    {
+      "slot": 1,
+      "type": "PLA",
+      "color": "#1D1E21",
+      "name": "Black",
+      "active": false
+    },
+    {
+      "slot": 2,
+      "type": "PETG",
+      "color": "#F5A623",
+      "name": "Amber",
+      "active": true
+    },
+    {
+      "slot": 3,
+      "type": "PLA",
+      "color": "#3B82F6",
+      "name": "Blue",
+      "active": false
+    }
+  ],
+  "error": null
+}

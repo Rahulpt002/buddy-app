@@ -1,0 +1,66 @@
+{
+  "status": "ok",
+  "message": null,
+  "events": [
+    {
+      "id": "mock-0",
+      "title": "Team standup",
+      "start": 1795516500000,
+      "end": 1795517400000,
+      "all_day": false,
+      "location": "Zoom",
+      "calendar": "Work",
+      "color": "#5AA9FF"
+    },
+    {
+      "id": "mock-1",
+      "title": "Lunch with Sam",
+      "start": 1795527000000,
+      "end": 1795530600000,
+      "all_day": false,
+      "location": "Corner Cafe",
+      "calendar": "Personal",
+      "color": "#C18CFF"
+    },
+    {
+      "id": "mock-2",
+      "title": "Design review",
+      "start": 1795538100000,
+      "end": 1795540800000,
+      "all_day": false,
+      "location": "Google Meet",
+      "calendar": "Work",
+      "color": "#5AA9FF"
+    },
+    {
+      "id": "mock-3",
+      "title": "Filament pickup",
+      "start": 1795840200000,
+      "end": 1795842000000,
+      "all_day": false,
+      "location": "Maker Supply Co.",
+      "calendar": "Personal",
+      "color": "#C18CFF"
+    },
+    {
+      "id": "mock-4",
+      "title": "Team standup",
+      "start": 1796009400000,
+      "end": 1796010300000,
+      "all_day": false,
+      "location": "Zoom",
+      "calendar": "Work",
+      "color": "#5AA9FF"
+    },
+    {
+      "id": "mock-5",
+      "title": "Game night",
+      "start": 1796133600000,
+      "end": 1796140800000,
+      "all_day": false,
+      "location": "Discord",
+      "calendar": "Personal",
+      "color": "#C18CFF"
+    }
+  ]
+}

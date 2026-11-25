@@ -1,0 +1,87 @@
+{
+  "status": "ok",
+  "message": null,
+  "tiles": [
+    {
+      "id": "mic.toggle",
+      "label": "Mute mic",
+      "icon": "mic",
+      "color": "#E8A598",
+      "state": {
+        "active": true,
+        "detail": null
+      }
+    },
+    {
+      "id": "sound.toggle",
+      "label": "Mute sound",
+      "icon": "speaker",
+      "color": "#AEB6C2",
+      "state": {
+        "active": false,
+        "detail": null
+      }
+    },
+    {
+      "id": "volume.down",
+      "label": "Vol -",
+      "icon": "vol_down",
+      "color": "#AEB6C2",
+      "state": {
+        "active": false,
+        "detail": "Volume 40%"
+      }
+    },
+    {
+      "id": "volume.up",
+      "label": "Vol +",
+      "icon": "vol_up",
+      "color": "#AEB6C2",
+      "state": {
+        "active": false,
+        "detail": "Volume 40%"
+      }
+    },
+    {
+      "id": "screenshot",
+      "label": "Screenshot",
+      "icon": "screenshot",
+      "color": "#A8C5B5",
+      "state": {
+        "active": false,
+        "detail": null
+      }
+    },
+    {
+      "id": "terminal",
+      "label": "Terminal",
+      "icon": "terminal",
+      "color": "#AEB6C2",
+      "state": {
+        "active": false,
+        "detail": null
+      }
+    },
+    {
+      "id": "downloads",
+      "label": "Downloads",
+      "icon": "folder",
+      "color": "#D9C49A",
+      "state": {
+        "active": false,
+        "detail": null
+      }
+    },
+    {
+      "id": "lock",
+      "label": "Lock PC",
+      "icon": "lock",
+      "color": "#B9A6E0",
+      "state": {
+        "active": false,
+        "detail": null
+      }
+    }
+  ],
+  "volume_pct": 40
+}

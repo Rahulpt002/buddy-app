@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeskPanel concept 3: Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+/* ---------- Page chrome (outside the device) ---------- */
+:root {
+  --pg-bg: #E9EAEC; --pg-ink: #18191C; --pg-muted: #5D6168; --pg-line: #D2D4D8; --pg-chip: #FFFFFF; --pg-chip-on: #18191C; --pg-chip-on-ink: #FFFFFF;
+  color-scheme: light;
+  box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --pg-bg: #141518; --pg-ink: #ECEDEF; --pg-muted: #9A9EA6; --pg-line: #2A2C31; --pg-chip: #1E2024; --pg-chip-on: #ECEDEF; --pg-chip-on-ink: #141518; color-scheme: dark; }
+html { height: 100%; }
+body { margin: 0; min-height: 100%; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--pg-bg); color: var(--pg-ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.pg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 14px 22px 4px; }
+.pg-head h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.pg-head h1 small { font-weight: 450; color: var(--pg-muted); margin-left: 6px; font-size: 14px; }
+.pg-head p { margin: 0; color: var(--pg-muted); max-width: 70ch; flex: 1 1 340px; }
+.pg-sizes { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--pg-line); border-radius: 999px; background: var(--pg-chip); }
+.pg-sizes button { font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 5px 12px; background: transparent; color: var(--pg-ink); cursor: pointer; }
+.pg-sizes button[aria-pressed="true"] { background: var(--pg-chip-on); color: var(--pg-chip-on-ink); }
+.pg-sizes button:focus-visible { outline: 2px solid var(--pg-ink); outline-offset: 2px; }
+#stage { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px 12px; }
+#device-wrap { position: relative; flex: none; }
+#device { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 11px; border-radius: 36px; background: #060607;
+  box-shadow: 0 0 0 1.5px #2C2D31, 0 30px 70px -30px rgba(0,0,0,.55); }
+.pg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 6px 22px 16px; color: var(--pg-muted); font-size: 12.5px; }
+.pg-foot .sw { display: inline-flex; align-items: center; gap: 6px; }
+.pg-foot .sw i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.pg-foot .swatches { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pg-foot b { color: var(--pg-ink); font-weight: 600; }
+
+/* ---------- Device screen base (shared by all concepts) ---------- */
+#screen { position: relative; overflow: hidden; border-radius: 25px; isolation: isolate; -webkit-font-smoothing: antialiased; }
+#screen *, #screen *::before, #screen *::after { box-sizing: border-box; }
+:where(#screen) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: inherit; }
+:where(#screen) [role="button"] { cursor: pointer; }
+:where(#screen) :is(h1, h2, h3, p) { margin: 0; }
+:where(#screen) .ic { width: 1em; height: 1em; flex: none; display: block; }
+:where(#screen) .art { display: block; width: 100%; height: 100%; }
+:where(#screen) .num { font-variant-numeric: tabular-nums; }
+:where(#screen) .offline-banner { display: none; position: absolute; z-index: 20; }
+:where(#screen[data-conn="off"]) .offline-banner { display: block; }
+:where(#screen) .toast { position: absolute; z-index: 30; left: 50%; bottom: 16px; transform: translate(-50%, 0); white-space: nowrap; animation: toastIn .22s ease-out; }
+:where(#screen) .toast.out { opacity: 0; transform: translate(-50%, 6px); transition: opacity .3s, transform .3s; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { #screen *, #screen *::before, #screen *::after { transition: none !important; animation: none !important; } }
+
+/* ---------- Concept styles ---------- */
+/* Concept 3 — Panel: the phone as a piece of bench hardware.
+   Aluminium face, recessed display windows, physical keys, LED indicators. */
+.panel {
+  --face1: #D9DCDF; --face2: #C5C8CC; --ink: #1C1E21; --lab: #50555C; --edge: #9EA3A9;
+  --win: #111315; --wline: #24282C; --wink: #E7ECE5; --wdim: #737B76; --off: #252A2E;
+  --sig: #FF5A1F; --g: #3BE07A; --a: #FFB21E; --r: #FF4433; --b: #52B9FF; --t: #3FE0CB; --v: #B992FF; --pk: #FF7DB8;
+  --focus: #FF5A1F;
+  background: linear-gradient(180deg, var(--face1), var(--face2)); color: var(--ink);
+  font: 500 12.5px/1.3 "Barlow", system-ui, sans-serif;
+}
+.panel::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .5;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 1px, transparent 1px 3px), radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,.5), transparent 60%); }
+.panel .pw { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+/* Mode keys */
+.panel .top { display: flex; align-items: center; gap: 10px; padding: 9px 12px 9px; border-bottom: 1px solid rgba(0,0,0,.13); box-shadow: 0 1px 0 rgba(255,255,255,.55); }
+.panel .keys { display: flex; gap: 5px; flex: 1; min-width: 0; }
+.panel .k { flex: 1 1 0; min-width: 0; height: 42px; border-radius: 7px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: linear-gradient(#F1F2F4, #DCDFE2); color: var(--lab); font-size: 10px; font-weight: 600; letter-spacing: .01em;
+  box-shadow: 0 2px 0 #9DA2A8, 0 3px 5px rgba(0,0,0,.18), inset 0 1px 0 #fff; transition: transform .08s, box-shadow .08s; }
+.panel .k .ic { font-size: 16px; color: var(--ink); stroke-width: 1.7; }
+.panel .k::after { content: ""; position: absolute; top: 5px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: #B3B7BC; box-shadow: inset 0 1px 1px rgba(0,0,0,.35); }
+.panel .k[aria-current="page"] { transform: translateY(2px); background: linear-gradient(#D6D9DC, #E3E5E8); color: var(--ink); box-shadow: 0 0 0 #9DA2A8, inset 0 1px 3px rgba(0,0,0,.28); }
+.panel .k[aria-current="page"]::after { background: var(--sig); box-shadow: 0 0 6px 1px var(--sig); }
+.panel .k:active { transform: translateY(2px); box-shadow: inset 0 1px 3px rgba(0,0,0,.28); }
+.panel .stat { flex: none; display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px; border-radius: 8px; background: var(--win); color: var(--wink);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.75); }
+.panel .stat .rd { font-size: 24px; }
+.panel .leds { display: grid; gap: 3px; font-size: 10px; font-weight: 600; color: var(--wdim); }
+.panel .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 0; background: var(--c, var(--g)); box-shadow: 0 0 6px var(--c, var(--g)); }
+.panel[data-conn="off"] .stat .led { --c: var(--r); }
+
+/* Face layout */
+.panel .view { padding: 10px 12px 12px; min-height: 0; overflow: auto; scrollbar-width: none; }
+.panel .g { display: grid; gap: 10px; height: 100%; min-height: 0; }
+.panel .cell { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.panel .lab { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--lab); margin: 0 0 4px 3px; white-space: nowrap; }
+.panel .lab .ic { font-size: 12px; }
+.panel .lab .sp { flex: 1; }
+.panel .win { flex: 1; min-height: 0; background: var(--win); color: var(--wink); border-radius: 8px; padding: 10px 12px; position: relative; overflow: hidden;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,.75), inset 0 0 0 1px #000, 0 1px 0 rgba(255,255,255,.8); }
+.panel .win::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(165deg, rgba(255,255,255,.07), transparent 38%); }
+.panel .rd { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; font-variant-numeric: tabular-nums; line-height: .9; letter-spacing: .005em; }
+.panel .rd small { font-size: .42em; font-weight: 500; color: var(--wdim); margin-left: 3px; letter-spacing: .02em; }
+.panel .dim { color: var(--wdim); }
+.panel .row { display: flex; align-items: center; gap: 8px; }
+.panel .sp { flex: 1; }
+.panel .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel .amber { color: var(--a); text-shadow: 0 0 12px rgba(255,178,30,.35); }
+.panel .green { color: var(--g); text-shadow: 0 0 12px rgba(59,224,122,.35); }
+.panel .red { color: var(--r); text-shadow: 0 0 12px rgba(255,68,51,.4); }
+.panel .orange { color: var(--sig); text-shadow: 0 0 12px rgba(255,90,31,.4); }
+.panel .white { color: var(--wink); }
+
+/* LED segment bars (horizontal + vertical) */
+.panel .sg { --c: var(--a); --n: 20; --st: 5%; height: 10px; position: relative;
+  background: repeating-linear-gradient(90deg, var(--off) 0 calc(100% / var(--n) - 2px), transparent calc(100% / var(--n) - 2px) calc(100% / var(--n))); }
+.panel .sg i { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, var(--c) 0 calc(100% / var(--n) - 2px), transparent calc(100% / var(--n) - 2px) calc(100% / var(--n)));
+  clip-path: inset(0 calc(100% - var(--p, 0) * 100%) 0 0); clip-path: inset(0 calc(100% - round(up, var(--p, 0) * 100%, var(--st))) 0 0);
+  filter: drop-shadow(0 0 3px var(--c)); transition: clip-path .4s; }
+.panel .vs { --c: var(--a); --n: 16; --st: 6.25%; width: 14px; position: relative; flex: none;
+  background: repeating-linear-gradient(0deg, var(--off) 0 calc(100% / var(--n) - 2px), transparent calc(100% / var(--n) - 2px) calc(100% / var(--n))); }
+.panel .vs i { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, var(--c) 0 calc(100% / var(--n) - 2px), transparent calc(100% / var(--n) - 2px) calc(100% / var(--n)));
+  clip-path: inset(calc(100% - var(--p, 0) * 100%) 0 0 0); clip-path: inset(calc(100% - round(up, var(--p, 0) * 100%, var(--st))) 0 0 0);
+  filter: drop-shadow(0 0 3px var(--c)); transition: clip-path .4s; }
+.panel .vbar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; font-size: 10.5px; color: var(--wdim); }
+.panel .vbar .vs { flex: 1; width: 100%; max-width: 30px; --n: 12; --st: 8.3333%; }
+.panel .vbar .vs i { clip-path: inset(calc(100% - var(--v) * 1%) 0 0 0); clip-path: inset(calc(100% - round(up, var(--v) * 1%, var(--st))) 0 0 0); }
+
+/* Keys inside the face */
+.panel .key { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 8px; position: relative;
+  background: linear-gradient(#F1F2F4, #DCDFE2); color: var(--ink); font-weight: 600; font-size: 13px;
+  box-shadow: 0 2.5px 0 #9DA2A8, 0 4px 6px rgba(0,0,0,.2), inset 0 1px 0 #fff; transition: transform .08s, box-shadow .08s; }
+.panel .key:active, .panel .key.down { transform: translateY(2px); box-shadow: 0 .5px 0 #9DA2A8, inset 0 1px 3px rgba(0,0,0,.25); }
+.panel .key .ic { font-size: 18px; }
+.panel .key.lit::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sig); box-shadow: 0 0 7px 1px var(--sig); }
+.panel .key.dark { background: linear-gradient(#34383D, #23272B); color: #F2F3F4; box-shadow: 0 2.5px 0 #0D0F11, 0 4px 6px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.12); }
+.panel .key[disabled] { opacity: .6; }
+
+/* Home */
+.panel .home { grid-template-columns: 1.35fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.panel .home .main { grid-row: 1 / 3; }
+.panel .bigclock { font-size: 104px; line-height: .8; margin-top: 4px; }
+.panel .bigclock small { font-size: 26px; }
+.panel .strip { display: grid; grid-template-columns: 8px 1fr; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--wline); }
+.panel .strip .led { margin: 0; }
+.panel .strip b { font-weight: 600; display: block; font-size: 13.5px; }
+.panel .strip span.dim { font-size: 12px; }
+
+/* System */
+.panel .ch4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; flex: none; height: 47%; }
+.panel .chan .win { display: flex; gap: 12px; padding: 10px; }
+.panel .chan .rd.n { font-size: 50px; }
+.panel .chan .sub { margin-top: auto; font-size: 11.5px; color: var(--wdim); }
+.panel .scope svg { display: block; width: 100%; height: 100%; }
+.panel .scope .win { padding: 6px; }
+.panel .scope .wl { position: absolute; top: 8px; right: 12px; z-index: 2; font-size: 11.5px; color: var(--wdim); display: flex; gap: 12px; }
+.panel .scope .wl b { font-weight: 600; }
+.panel .facefoot { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--lab); margin: 5px 3px 0; }
+.panel .net { grid-template-columns: 1fr 1fr 1.25fr; grid-template-rows: auto 1fr auto; }
+
+/* Claude */
+.panel .cl { grid-template-columns: 1fr 1fr 1.1fr; grid-template-rows: auto 1fr; }
+.panel .quad { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.panel .quad .rd { font-size: 26px; }
+.panel .quad span { font-size: 11px; color: var(--wdim); }
+.panel .hist { display: flex; gap: 10px; height: 100%; padding-top: 4px; }
+
+/* Calendar */
+.panel .cal { grid-template-columns: 1.5fr 1fr; }
+.panel .agenda { display: grid; gap: 0; }
+.panel .ag { display: grid; grid-template-columns: 88px 8px 1fr auto; gap: 12px; align-items: center; padding: 11px 4px; border-bottom: 1px solid var(--wline); }
+.panel .ag:last-child { border: 0; }
+.panel .ag .rd { font-size: 26px; }
+.panel .ag b { font-weight: 600; font-size: 15px; display: block; }
+.panel .ag.past { opacity: .4; }
+.panel .ag .led { margin: 0; }
+
+/* Weather */
+.panel .wx { grid-template-columns: 1fr 1.6fr; grid-template-rows: 1fr auto; }
+.panel .wxcols { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: 100%; align-items: end; gap: 6px; }
+.panel .wxcols > div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; font-size: 10.5px; color: var(--wdim); }
+.panel .wxcols .vs { width: 12px; --n: 10; --st: 10%; --c: var(--b); }
+.panel .wxcols .rd { font-size: 17px; color: var(--wink); }
+.panel .days6 { display: grid; grid-template-columns: repeat(6, 1fr); }
+.panel .days6 > div { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 2px 0; font-size: 11px; color: var(--wdim); }
+.panel .days6 > div + div { border-left: 1px solid var(--wline); }
+.panel .days6 .ic { font-size: 18px; color: var(--wink); }
+.panel .days6 .rd { font-size: 19px; color: var(--wink); }
+
+/* Music */
+.panel .mu { grid-template-columns: auto 1fr; }
+.panel .bezel { height: 100%; aspect-ratio: 1; padding: 8px; border-radius: 12px; background: #2A2E33; box-shadow: inset 0 2px 6px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.7); }
+.panel .bezel .art { border-radius: 6px; }
+.panel .lcd h2 { font-family: "Barlow Condensed"; font-weight: 600; font-size: 34px; line-height: 1; margin: 6px 0 4px; letter-spacing: .005em; }
+.panel .transport { display: flex; gap: 10px; margin-top: 12px; }
+.panel .transport .key { height: 52px; flex: 1; font-size: 20px; }
+.panel .transport .key .ic { font-size: 22px; }
+.panel .transport .key.play { flex: 1.5; }
+
+/* Printer */
+.panel .pr { grid-template-columns: 1.25fr 1fr; grid-template-rows: 1fr auto; }
+.panel .pr-n { font-size: 112px; }
+.panel .temps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.panel .temps3 .rd { font-size: 34px; }
+.panel .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.panel .slot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px; border-radius: 8px; background: linear-gradient(#E9EBED, #D3D6DA); box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,.2); font-size: 11.5px; font-weight: 600; color: var(--lab); position: relative; }
+.panel .slot i { width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(circle, #8D9298 0 4px, var(--c) 4.5px); box-shadow: inset 0 0 0 1px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.3); }
+.panel .slot.on { color: var(--ink); }
+.panel .slot::after { content: ""; position: absolute; top: 5px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: #B3B7BC; }
+.panel .slot.on::after { background: var(--sig); box-shadow: 0 0 6px var(--sig); }
+
+/* Timer */
+.panel .tm { grid-template-columns: 1.7fr 1fr; }
+.panel .tm-n { font-size: 168px; line-height: .78; text-align: center; }
+.panel .modes { display: grid; gap: 8px; }
+.panel .modes .key { justify-content: flex-start; }
+
+/* Games */
+.panel .gm { grid-template-rows: 1fr auto; grid-template-columns: 1.3fr 1fr; }
+.panel .carts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.panel .cart { display: grid; grid-template-columns: 40px 1fr; gap: 9px; align-items: center; padding: 7px; border-radius: 9px; text-align: left;
+  background: linear-gradient(#F1F2F4, #DCDFE2); box-shadow: 0 2.5px 0 #9DA2A8, 0 4px 6px rgba(0,0,0,.18), inset 0 1px 0 #fff; transition: transform .08s, box-shadow .08s; }
+.panel .cart:active { transform: translateY(2px); box-shadow: inset 0 1px 3px rgba(0,0,0,.25); }
+.panel .cart .im { height: 46px; border-radius: 5px; overflow: hidden; }
+.panel .cart b { display: block; font-size: 12.5px; font-weight: 600; }
+.panel .cart span { font-size: 11px; color: var(--lab); }
+
+/* GitHub */
+.panel .gh { grid-template-rows: auto 1fr; grid-template-columns: .8fr 1fr 1.1fr; }
+.panel .gh .matrix { grid-column: 1 / -1; }
+.panel .matrix .win { padding: 8px 10px; }
+.panel .matrix svg { display: block; width: 100%; height: auto; }
+.panel .matrix text { font: 600 9px "Barlow"; fill: var(--wdim); }
+.panel .wkb { display: flex; gap: 6px; height: 100%; align-items: stretch; }
+.panel .wkb .vbar .vs { max-width: 18px; --n: 10; --st: 10%; --c: var(--g); }
+.panel .wkb .vbar.tdy { color: var(--wink); font-weight: 700; }
+.panel .repo { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; margin-bottom: 6px; font-size: 12.5px; }
+.panel .repo .sg { grid-column: 1 / -1; height: 5px; --c: var(--g); --n: 24; --st: 4.1667%; }
+
+/* Shortcuts */
+.panel .sc { grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; gap: 14px; padding: 4px; }
+.panel .cap { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-radius: 14px; font-size: 13.5px; font-weight: 600; color: var(--ink);
+  background: linear-gradient(#F3F4F6, #D8DBDF); box-shadow: 0 4px 0 #969BA1, 0 7px 10px rgba(0,0,0,.2), inset 0 1px 0 #fff, inset 0 -2px 0 rgba(0,0,0,.05); transition: transform .08s, box-shadow .08s; }
+.panel .cap .ic { font-size: 34px; stroke-width: 1.6; }
+.panel .cap:active { transform: translateY(3px); box-shadow: 0 1px 0 #969BA1, 0 2px 4px rgba(0,0,0,.2), inset 0 1px 0 #fff; }
+.panel .cap::after { content: ""; position: absolute; top: 9px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: #B3B7BC; box-shadow: inset 0 1px 1px rgba(0,0,0,.3); }
+.panel .cap.on::after { background: var(--r); box-shadow: 0 0 8px 1px var(--r); }
+.panel .cap.on { transform: translateY(2px); box-shadow: 0 2px 0 #969BA1, 0 3px 6px rgba(0,0,0,.2), inset 0 1px 0 #fff; }
+.panel .cap.dark { background: linear-gradient(#3A3E43, #25292D); color: #F2F3F4; box-shadow: 0 4px 0 #0D0F11, 0 7px 10px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.12); }
+.panel .cap.sig { background: linear-gradient(#FF7A45, #F0531A); color: #fff; box-shadow: 0 4px 0 #B33A0E, 0 7px 10px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.35); }
+.panel .cap small { font-size: 11px; color: var(--lab); margin-top: -6px; }
+
+/* Offline + toast */
+.panel .offline-banner { top: 64px; left: 50%; transform: translateX(-50%); padding: 7px 14px; border-radius: 8px; background: var(--win); color: #FFB3AA; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.35); max-width: 80%; text-align: center; }
+.panel .offline-banner strong { color: var(--r); }
+.panel[data-conn="off"] .win { filter: brightness(.55) saturate(.3); }
+.panel .toast { background: var(--win); color: var(--a); padding: 8px 16px; border-radius: 8px; font: 600 15px "Barlow Condensed"; letter-spacing: .02em; box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px #000; text-shadow: 0 0 10px rgba(255,178,30,.4); }
+
+.panel .cell > .cell { flex: 1; }
+
+</style>
+</head>
+<body>
+<header class="pg-head">
+  <h1>Concept 3: Panel <small>a piece of desk hardware</small></h1>
+  <p>The phone pretends to be bench equipment: a brushed light face, recessed black display windows, physical keys you press, LED bargraphs and an LED matrix for GitHub. Built for a bright desk and for tapping without looking twice.</p>
+  <div class="pg-sizes" role="group" aria-label="Screen size">
+    <button type="button" data-size="phone" aria-pressed="true">Phone 915×412</button>
+    <button type="button" data-size="seven" aria-pressed="false">7-inch 1024×600</button>
+  </div>
+</header>
+<div id="stage"><div id="device-wrap"><div id="device"><div id="screen" class="panel"></div></div></div></div>
+<footer class="pg-foot">
+  <div class="swatches"><span class="sw"><i style="background:#D9DCDF"></i>Face #D9DCDF</span><span class="sw"><i style="background:#111315"></i>Window #111315</span><span class="sw"><i style="background:#1C1E21"></i>Ink #1C1E21</span><span class="sw"><i style="background:#FF5A1F"></i>Signal #FF5A1F</span><span class="sw"><i style="background:#FFB21E"></i>LED amber #FFB21E</span><span class="sw"><i style="background:#3BE07A"></i>LED green #3BE07A</span><span class="sw"><i style="background:#52B9FF"></i>LED blue #52B9FF</span><span class="sw"><i style="background:#FF4433"></i>LED red #FF4433</span></div>
+  <span><b>Type</b> Barlow Condensed for readouts, Barlow for printed labels</span>
+  <span>Tap any icon to switch pages. Tap the connection icon to preview Wi‑Fi, USB and offline states.</span>
+</footer>
+<script>
+/* ============================================================
+   DeskPanel concept — shared core
+   Mock data, simulated clock, icons, chart helpers and the
+   app shell (navigation, live bindings, actions, scaling).
+   Every concept file uses this same core; only the
+   frame/nav/page renderers and CSS differ.
+   ============================================================ */
+(() => {
+'use strict';
+
+/* ---------- Simulated clock (fixed scene: Fri Nov 20, 8:35 AM) ---------- */
+const T0 = Date.now();
+const START = new Date(2026, 10, 20, 8, 35, 0);
+const now = () => new Date(START.getTime() + (Date.now() - T0));
+const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAY3 = DAY.map(d => d.slice(0, 3));
+const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON3 = MONTH.map(m => m.slice(0, 3));
+const pad = n => String(n).padStart(2, '0');
+const clock = d => (d.getHours() % 12 || 12) + ':' + pad(d.getMinutes());
+const ampm = d => d.getHours() < 12 ? 'AM' : 'PM';
+const dur = min => { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h ${m}m` : `${m}m`; };
+const ms = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + pad(s % 60); };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+const R = rng(42);
+
+/* ---------- Mock data ---------- */
+const hist = (n, base, amp, f) => Array.from({ length: n }, (_, i) => base + amp * Math.sin(i / f) + (R() - .5) * amp * .5);
+
+const D = {
+  sys: {
+    cpu: 30, gpu: 48, gpuTemp: 52, ram: 18.4, ramTotal: 32, vram: 6.2, vramTotal: 12,
+    down: 1.8, up: 220, cpuName: 'Ryzen 7 7800X3D', gpuName: 'GeForce RTX 4070', disk: 58,
+    cpuHist: hist(60, 30, 6, 4), gpuHist: hist(60, 48, 7, 5)
+  },
+  net: {
+    latency: 17, jitter: 2.1, loss: 0, uptime: '3d 5h', lastDrop: '3 days ago',
+    today: 3.2, month: 412.0, dl: 942, ul: 38, ping: 9, tested: '2h ago', nowDl: 15.1, nowUl: 1.8,
+    latHist: Array.from({ length: 120 }, (_, i) => 16 + R() * 3 + (i === 40 || i === 96 ? 14 : 0))
+  },
+  claude: {
+    five: 38, fiveReset: 132, week: 61, weekReset: 'Sat 2:01 PM',
+    tokens: '48.2M', output: '182K', messages: 214, lastHour: '6.1M',
+    days: [28.4, 6.9, 21.5, 55.3, 43.1, 62.0, 48.2],
+    models: [['Opus', 31.0], ['Sonnet', 15.1], ['Haiku', 2.1]]
+  },
+  cal: {
+    today: [
+      { start: '9:00 AM', end: '9:15 AM', mins: 540, title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { start: '12:30 PM', end: '1:30 PM', mins: 750, title: 'Lunch with Sam', where: 'Corner Cafe', cal: 'Personal', color: '#C18CFF' },
+      { start: '4:00 PM', end: '4:45 PM', mins: 960, title: 'Design review', where: 'Google Meet', cal: 'Work', color: '#5AA9FF' }
+    ],
+    later: [
+      { day: 'Saturday', start: '10:00 AM', title: 'Filament pickup', where: 'Maker Supply Co.', cal: 'Personal', color: '#C18CFF' },
+      { day: 'Monday', start: '9:00 AM', title: 'Team standup', where: 'Zoom', cal: 'Work', color: '#5AA9FF' },
+      { day: 'Tuesday', start: '7:30 PM', title: 'Game night', where: 'Discord', cal: 'Personal', color: '#C18CFF' }
+    ]
+  },
+  wx: {
+    city: 'Charlotte', temp: 58, cond: 'Overcast', icon: 'cloud', feels: 53, humidity: 53, wind: 5, updated: '8:30 AM',
+    hours: [['Now', 58, 'cloud'], ['9 AM', 59, 'cloud'], ['10 AM', 61, 'cloud'], ['11 AM', 63, 'partly'], ['12 PM', 65, 'partly'],
+      ['1 PM', 67, 'sun'], ['2 PM', 68, 'sun'], ['3 PM', 69, 'sun'], ['4 PM', 67, 'partly'], ['5 PM', 64, 'cloud'], ['6 PM', 61, 'cloud'], ['7 PM', 57, 'cloud']],
+    days: [['Today', 'cloud', 69, 40, 0], ['Sat', 'rain', 61, 48, 63], ['Sun', 'rain', 57, 54, 54], ['Mon', 'rain', 68, 56, 38], ['Tue', 'cloud', 62, 50, 0], ['Wed', 'rain', 50, 43, 46]]
+  },
+  tracks: [
+    { title: 'Midnight City Lights', artist: 'Synth Dreams', album: 'Neon Skyline', len: 241, hue: 262 },
+    { title: 'Low Tide Radio', artist: 'Harbor Static', album: 'Salt & Signal', len: 214, hue: 196 },
+    { title: 'Paper Planets', artist: 'Juno Vale', album: 'Orbit Season', len: 192, hue: 28 },
+    { title: 'Afterglow Freeway', artist: 'The Night Shift', album: 'Overpass', len: 265, hue: 330 }
+  ],
+  printer: {
+    name: 'X1 Carbon', model: 'X1C', status: 'Printing', job: 'Desk_Organizer', speed: 'Standard',
+    pct: 47, left: 48, layer: 112, layers: 240, nozzle: 220, nozzleT: 220, bed: 55, bedT: 55, chamber: 34,
+    ams: [{ c: '#F1F1EE', t: 'PLA', n: 'White' }, { c: '#1D1E21', t: 'PLA', n: 'Black' }, { c: '#F5A623', t: 'PETG', n: 'Amber', active: true }, { c: '#3B82F6', t: 'PLA', n: 'Blue' }]
+  },
+  games: {
+    now: { title: 'Starfall Tactics', hue: 252, session: 48, total: 128, friends: 2 },
+    recent: [['Harbor Lights', 41, 205], ['Iron Orchard', 16, 95], ['Neon Drift', 12, 318], ['Frostline', 5.0, 205], ['Ember Keep', 75, 20]]
+  },
+  gh: {
+    total: '1,033', commits: 120, private: 907, issues: 1, streak: 5, longest: 10, best: 75, bestDay: 'Nov 16',
+    week: [0, 75, 68, 48, 58, 32, 0], lastWeek: [0, 28, 14, 20, 24, 10, 5], weekTotal: 281, delta: 180,
+    repos: [['pixel-garden', 222], ['tide-engine', 201], ['deskpanel', 111], ['lumen-notes', 88]]
+  },
+  shortcuts: [
+    { id: 'mic', label: 'Mute mic', icon: 'mic' }, { id: 'sound', label: 'Mute sound', icon: 'speaker' },
+    { id: 'voldown', label: 'Volume down', icon: 'volDown' }, { id: 'volup', label: 'Volume up', icon: 'volUp' },
+    { id: 'shot', label: 'Screenshot', icon: 'shot' }, { id: 'term', label: 'Terminal', icon: 'terminal' },
+    { id: 'dl', label: 'Downloads', icon: 'folder' }, { id: 'lock', label: 'Lock PC', icon: 'lock' }
+  ],
+  timerModes: [{ id: 'focus', label: 'Focus', min: 25 }, { id: 'short', label: 'Short break', min: 5 }, { id: 'long', label: 'Long break', min: 15 }]
+};
+
+/* 7-day labels ending today, GitHub heatmap (53 weeks ending this week) */
+(() => {
+  const t = START;
+  D.claude.labels = D.claude.days.map((_, i) => i === 6 ? 'Today' : DAY3[(t.getDay() - 6 + i + 7) % 7]);
+  const sat = new Date(t); sat.setDate(t.getDate() + (6 - t.getDay()));
+  const first = new Date(sat); first.setDate(sat.getDate() - 53 * 7 + 1);
+  const busy = { 5: .6, 6: .75, 7: .5, 9: .55, 10: .8, 11: .85, 1: .35, 2: .3, 3: .15, 4: .35, 8: .45, 0: .3 };
+  const r = rng(7); const weeks = []; const months = [];
+  for (let w = 0; w < 53; w++) {
+    const col = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(first); day.setDate(first.getDate() + w * 7 + d);
+      if (day > t) { col.push(null); continue; }
+      const p = busy[day.getMonth()] * (d === 0 || d === 6 ? .5 : 1);
+      col.push(r() < p ? Math.ceil(r() ** 2 * 22) : 0);
+    }
+    const ws = new Date(first); ws.setDate(first.getDate() + w * 7);
+    const prev = new Date(ws); prev.setDate(ws.getDate() - 7);
+    if (w > 0 && ws.getMonth() !== prev.getMonth() && w < 52) months.push({ i: w, label: MON3[ws.getMonth()] });
+    weeks.push(col);
+  }
+  weeks[52] = D.gh.week.map((v, i) => i > t.getDay() ? null : v);
+  weeks[51] = D.gh.lastWeek.slice();
+  D.gh.weeks = weeks; D.gh.months = months;
+})();
+
+/* ---------- Live state ---------- */
+const S = {
+  page: 'home', sysTab: 'pc', conn: 'wifi', size: 'phone',
+  track: 0, pos: 75, playing: true,
+  mic: false, sound: false, vol: 40,
+  tMode: 'focus', tLeft: 25 * 60, tRun: false, sessions: 2,
+  st: { running: false, p: 0, dl: 942, ul: 38, ping: 9, when: '2h ago' },
+  lastSync: null
+};
+
+/* ---------- Icons (24px, stroke = currentColor) ---------- */
+const P = {
+  home: '<path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6H9v6H4a.5.5 0 0 1-.5-.5z"/>',
+  system: '<path d="M3 16.5 8 11l4 3.5 4.5-6.5 4.5 4"/><path d="M3 20.5h18"/>',
+  claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  weather: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  printer: '<path d="M12 2.8 3.8 7.3v9.4l8.2 4.5 8.2-4.5V7.3z"/><path d="M3.8 7.3 12 11.8l8.2-4.5M12 11.8v9.4"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>',
+  games: '<path d="M7 7.5h10a4.5 4.5 0 0 1 4.5 4.5v2.5a3 3 0 0 1-5.4 1.8L15 15h-6l-1.1 1.3a3 3 0 0 1-5.4-1.8V12A4.5 4.5 0 0 1 7 7.5z"/><path d="M7.5 10.5v3.5M5.75 12.25h3.5"/><circle cx="16" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="18" cy="13.2" r=".9" fill="currentColor" stroke="none"/>',
+  github: '<circle cx="12" cy="12" r="3.5"/><path d="M2.5 12h6M15.5 12h6"/>',
+  shortcuts: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+  monitor: '<rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
+  wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 15.8a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19.3" r="1.1" fill="currentColor" stroke="none"/>',
+  usb: '<path d="M9 2.5v4.5M15 2.5v4.5M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5v5"/>',
+  off: '<path d="M2.5 9a14 14 0 0 1 4.2-2.8M10.5 5.6A14 14 0 0 1 21.5 9M8.7 15.8a5 5 0 0 1 6.6 0M3 3l18 18"/>',
+  cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.7 4.4 4.4 0 0 0 7 18.5z"/>',
+  partly: '<path d="M9.5 6.5V4.5M4.4 8.6l-1.4-1.4M14.6 8.6 16 7.2M3.5 13.5h-1"/><path d="M6.4 12.3a3.8 3.8 0 0 1 6.9-2.8"/><path d="M9 20h9a3.3 3.3 0 0 0 .5-6.55A5 5 0 0 0 8.8 12.7 3.7 3.7 0 0 0 9 20z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  rain: '<path d="M7 15h10.5a3.6 3.6 0 0 0 .5-7.15A5.5 5.5 0 0 0 7.4 7.2 3.9 3.9 0 0 0 7 15z"/><path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5v3.5"/>',
+  micOff: '<path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5.5 11a6.5 6.5 0 0 0 10.9 4.8M18.5 11c0 .7-.1 1.4-.3 2M12 17.5v3.5M3.5 3.5l17 17"/>',
+  speaker: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/>',
+  speakerOff: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>',
+  volDown: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5"/>',
+  volUp: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 12h5M18 9.5v5"/>',
+  shot: '<path d="M4 8.5V5.5a1 1 0 0 1 1-1h3M16 4.5h3a1 1 0 0 1 1 1v3M20 15.5v3a1 1 0 0 1-1 1h-3M8 19.5H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2.5"/>',
+  terminal: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M7 9.5l2.8 2.5L7 14.5M12.5 15h4.5"/>',
+  folder: '<path d="M3 6.5a1 1 0 0 1 1-1h5l2 2.2h9a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  play: '<path d="M8 5.2v13.6L19 12z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor" stroke="none"/>',
+  prev: '<path d="M6 5.5v13"/><path d="M18.5 5.5 9 12l9.5 6.5z" fill="currentColor"/>',
+  next: '<path d="M18 5.5v13"/><path d="M5.5 5.5 15 12l-9.5 6.5z" fill="currentColor"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5M4 3.5v5h5"/>',
+  flame: '<path d="M12 3s5 4.3 5 9.3a5 5 0 0 1-10 0c0-2.8 2-3.9 2.3-6.3C10.8 7.3 12 3 12 3z"/>',
+  bed: '<path d="M12 4 2.5 8.5 12 13l9.5-4.5zM2.5 13 12 17.5l9.5-4.5"/>',
+  thermo: '<path d="M10 14.3V5a2 2 0 0 1 4 0v9.3a4 4 0 1 1-4 0z"/>',
+  down: '<path d="M12 4.5v15M6.5 14l5.5 5.5 5.5-5.5"/>',
+  up: '<path d="M12 19.5v-15M6.5 10 12 4.5l5.5 5.5"/>',
+  drop: '<path d="M12 3.5s6 6.3 6 10.5a6 6 0 0 1-12 0c0-4.2 6-10.5 6-10.5z"/>',
+  wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5M3 12.5h15a2.5 2.5 0 1 1-2.5 2.5M3 16.5h7"/>',
+  users: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14a6 6 0 0 1 3.5 5.5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  pin: '<path d="M12 21s6.5-6 6.5-11a6.5 6.5 0 0 0-13 0c0 5 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'
+};
+const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
+
+/* ---------- Generated cover art: sun over layered hills ---------- */
+let uid = 0;
+function art(hue, seed = 1, opts = {}) {
+  const id = 'a' + (++uid), W = opts.w || 100, k = W / 100;
+  const sx = (28 + (seed * 37) % 44) * k, sy = 30 + (seed * 13) % 14;
+  const sat = opts.sat ?? 58;
+  return `<svg class="art" viewBox="0 0 ${W} 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="hsl(${hue} ${sat}% 20%)"/><stop offset="1" stop-color="hsl(${hue + 18} ${sat + 8}% 44%)"/></linearGradient></defs>
+    <rect width="${W}" height="100" fill="url(#${id})"/>
+    <circle cx="${sx}" cy="${sy}" r="15" fill="hsl(44 96% 82%)"/>
+    <g transform="scale(${k} 1)"><path d="M0 64 C 22 55 42 70 66 60 S 100 56 100 56 V100 H0z" fill="hsl(${hue + 6} ${sat - 10}% 30%)"/>
+    <path d="M0 78 C 28 70 58 86 100 72 V100 H0z" fill="hsl(${hue} ${sat}% 15%)"/></g></svg>`;
+}
+
+/* ---------- Chart helpers ---------- */
+function linePath(vals, w, h, lo, hi, pad = 2) {
+  const n = vals.length, dx = w / (n - 1);
+  const y = v => pad + (h - 2 * pad) * (1 - (clamp(v, lo, hi) - lo) / (hi - lo));
+  let d = `M0 ${y(vals[0]).toFixed(1)}`;
+  for (let i = 1; i < n; i++) {
+    const x0 = (i - 1) * dx, x1 = i * dx, xm = (x0 + x1) / 2;
+    d += ` C${xm.toFixed(1)} ${y(vals[i - 1]).toFixed(1)} ${xm.toFixed(1)} ${y(vals[i]).toFixed(1)} ${x1.toFixed(1)} ${y(vals[i]).toFixed(1)}`;
+  }
+  return d;
+}
+function stepPath(vals, w, h, lo, hi) {
+  const n = vals.length, dx = w / n;
+  const y = v => (h * (1 - (clamp(v, lo, hi) - lo) / (hi - lo))).toFixed(1);
+  let d = `M0 ${y(vals[0])}`;
+  vals.forEach((v, i) => { d += ` H${(i * dx).toFixed(1)} V${y(v)}`; });
+  return d + ` H${w}`;
+}
+function arc(cx, cy, r, a0, a1) {
+  const p = a => [cx + r * Math.cos((a - 90) * Math.PI / 180), cy + r * Math.sin((a - 90) * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+const size = el => [Math.max(10, el.clientWidth), Math.max(10, el.clientHeight)];
+
+/* ---------- Derived values ---------- */
+const nowMin = () => { const d = now(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const nextEvent = () => D.cal.today.find(e => e.mins > nowMin()) || null;
+const elapsedMin = () => (now() - START) / 60000;
+const printerPct = () => clamp(D.printer.pct + elapsedMin() / D.printer.left * (100 - D.printer.pct), 0, 100);
+const printerLeft = () => Math.max(0, D.printer.left - elapsedMin());
+const doneAt = () => clock(new Date(now().getTime() + printerLeft() * 60000)) + ' ' + ampm(new Date(now().getTime() + printerLeft() * 60000));
+const track = () => D.tracks[S.track];
+const tMode = () => D.timerModes.find(m => m.id === S.tMode);
+const usageLevel = p => p < 50 ? 'ok' : p < 80 ? 'warn' : 'bad';
+
+/* ---------- Bindings: [data-b] text, [data-p] --p (0–1), [data-arc] dash offset ---------- */
+const B = {
+  clock: () => clock(now()), ampm: () => ampm(now()),
+  date: () => { const d = now(); return `${DAY[d.getDay()]}, ${MONTH[d.getMonth()]} ${d.getDate()}`; },
+  dateShort: () => { const d = now(); return `${DAY3[d.getDay()]} ${MON3[d.getMonth()]} ${d.getDate()}`; },
+  cpu: () => Math.round(D.sys.cpu), gpu: () => Math.round(D.sys.gpu), gpuTemp: () => Math.round(D.sys.gpuTemp),
+  ram: () => D.sys.ram.toFixed(1), ramPct: () => Math.round(D.sys.ram / D.sys.ramTotal * 100),
+  vram: () => D.sys.vram.toFixed(1), vramPct: () => Math.round(D.sys.vram / D.sys.vramTotal * 100),
+  down: () => D.sys.down.toFixed(1), up: () => Math.round(D.sys.up),
+  latency: () => Math.round(D.net.latency), jitter: () => D.net.jitter.toFixed(1),
+  nowDl: () => D.net.nowDl.toFixed(1), nowUl: () => D.net.nowUl.toFixed(1),
+  stDl: () => S.st.running ? Math.round(S.st.dl) : D.net.dl, stUl: () => S.st.running ? Math.round(S.st.ul) : D.net.ul,
+  stPing: () => S.st.ping, stWhen: () => S.st.running ? 'Testing now' : 'Tested ' + S.st.when,
+  stBtn: () => S.st.running ? 'Testing…' : 'Run test',
+  fiveReset: () => dur(D.claude.fiveReset - elapsedMin()),
+  nextTitle: () => nextEvent()?.title || 'Nothing else today',
+  nextIn: () => { const e = nextEvent(); if (!e) return 'Free until tomorrow'; const m = e.mins - nowMin(); return m < 1 ? 'Starting now' : `in ${dur(m)}`; },
+  nextWhen: () => { const e = nextEvent(); return e ? `${e.start}, ${e.where}` : ''; },
+  prPct: () => Math.floor(printerPct()), prLeft: () => dur(printerLeft()), prDone: () => doneAt(),
+  prLayer: () => Math.min(D.printer.layers, Math.round(D.printer.layer + (printerPct() - D.printer.pct) / 100 * D.printer.layers)),
+  trTitle: () => track().title, trArtist: () => track().artist, trAlbum: () => track().album,
+  trPos: () => ms(S.pos), trLen: () => ms(track().len), trLeft: () => '-' + ms(track().len - S.pos),
+  timer: () => ms(S.tLeft), tLabel: () => S.tRun ? 'Pause' : (S.tLeft < tMode().min * 60 ? 'Resume' : 'Start'),
+  conn: () => ({ wifi: 'Wi‑Fi', usb: 'USB', off: 'Offline' }[S.conn]),
+  connLong: () => ({ wifi: 'Laptop on Wi‑Fi', usb: 'Laptop on USB', off: 'Laptop offline' }[S.conn]),
+  vol: () => S.vol, gameSession: () => dur(D.games.now.session + elapsedMin())
+};
+const PB = {
+  cpu: () => D.sys.cpu / 100, gpu: () => D.sys.gpu / 100, ram: () => D.sys.ram / D.sys.ramTotal, vram: () => D.sys.vram / D.sys.vramTotal,
+  disk: () => D.sys.disk / 100, five: () => D.claude.five / 100, week: () => D.claude.week / 100,
+  printer: () => printerPct() / 100, music: () => S.pos / track().len, timer: () => 1 - S.tLeft / (tMode().min * 60),
+  st: () => S.st.running ? S.st.p : 1, vol: () => S.vol / 100, latency: () => D.net.latency / 50,
+  sessions: () => S.sessions / 4
+};
+
+/* ---------- Shell ---------- */
+let theme, screen, view, nav;
+const SIZES = { phone: [915, 412], seven: [1024, 600] };
+
+function refresh(root = screen) {
+  root.querySelectorAll('[data-b]').forEach(el => { const f = B[el.dataset.b]; if (f) { const v = String(f()); if (el.textContent !== v) el.textContent = v; } });
+  root.querySelectorAll('[data-p]').forEach(el => { const f = PB[el.dataset.p]; if (f) el.style.setProperty('--p', clamp(f(), 0, 1).toFixed(4)); });
+  root.querySelectorAll('[data-arc]').forEach(el => { const f = PB[el.dataset.arc]; if (f) { const p = clamp(f(), 0, 1); el.style.strokeDashoffset = (100 - p * 100).toFixed(2); el.style.opacity = p < .004 ? 0 : 1; } });
+  root.querySelectorAll('[data-c]').forEach(el => { const f = theme.charts?.[el.dataset.c]; if (f && el.clientWidth) el.innerHTML = f(el); });
+  theme.refresh?.();
+}
+function render() {
+  screen.dataset.page = S.page; screen.dataset.conn = S.conn;
+  nav.innerHTML = theme.nav();
+  view.innerHTML = theme.pages[S.page]();
+  requestAnimationFrame(() => refresh());
+  refresh();
+}
+function go(p) { S.page = p; render(); view.scrollTop = 0; }
+
+function toast(msg) {
+  screen.querySelector('.toast')?.remove();
+  const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  screen.appendChild(t); setTimeout(() => t.classList.add('out'), 1900); setTimeout(() => t.remove(), 2400);
+}
+
+function speedtest() {
+  if (S.st.running || S.conn === 'off') return;
+  S.st = { ...S.st, running: true, p: 0, dl: 0, ul: 0 }; render();
+  const iv = setInterval(() => {
+    S.st.p = Math.min(1, S.st.p + 0.03);
+    S.st.dl = S.st.p < .6 ? 920 * Math.min(1, S.st.p / .3) + (Math.random() - .5) * 60 : 936;
+    S.st.ul = S.st.p < .6 ? 0 : 38 * Math.min(1, (S.st.p - .6) / .25) + (Math.random() - .5) * 4;
+    if (S.st.p >= 1) { clearInterval(iv); D.net.dl = 936; D.net.ul = 39; S.st = { running: false, p: 1, dl: 936, ul: 39, ping: 8, when: 'just now' }; render(); toast('Speed test finished: 936 down, 39 up'); return; }
+    refresh();
+  }, 120);
+}
+
+const A = {
+  go: v => go(v),
+  tab: v => { S.sysTab = v; render(); },
+  play: () => { S.playing = !S.playing; render(); },
+  next: () => { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); },
+  prev: () => { if (S.pos > 5) S.pos = 0; else { S.track = (S.track - 1 + D.tracks.length) % D.tracks.length; S.pos = 0; } render(); },
+  seek: (v, e, el) => { const r = el.getBoundingClientRect(); S.pos = Math.round(clamp((e.clientX - r.left) / r.width, 0, 1) * track().len); refresh(); },
+  tStart: () => { S.tRun = !S.tRun; render(); },
+  tReset: () => { S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  tMode: v => { S.tMode = v; S.tRun = false; S.tLeft = tMode().min * 60; render(); },
+  speed: () => speedtest(),
+  game: v => toast(`Launching ${v} on your laptop`),
+  conn: () => { S.conn = { wifi: 'usb', usb: 'off', off: 'wifi' }[S.conn]; if (S.conn === 'off') S.lastSync = clock(now()) + ' ' + ampm(now()); render(); toast({ wifi: 'Connected over Wi‑Fi', usb: 'Connected over USB', off: 'Laptop disconnected' }[S.conn]); },
+  sc: v => {
+    if (S.conn === 'off') { toast('Connect your laptop to use shortcuts'); return; }
+    const m = {
+      mic: () => { S.mic = !S.mic; return S.mic ? 'Microphone muted' : 'Microphone on'; },
+      sound: () => { S.sound = !S.sound; return S.sound ? 'Sound muted' : 'Sound on'; },
+      voldown: () => { S.vol = Math.max(0, S.vol - 10); S.sound = false; return `Volume ${S.vol}%`; },
+      volup: () => { S.vol = Math.min(100, S.vol + 10); S.sound = false; return `Volume ${S.vol}%`; },
+      shot: () => 'Screenshot saved to Pictures', term: () => 'Terminal opened', dl: () => 'Downloads opened', lock: () => 'Laptop locked'
+    };
+    const msg = m[v](); render(); toast(msg);
+  }
+};
+
+function tick() {
+  const live = S.conn !== 'off';
+  if (live) {
+    const s = D.sys, w = (v, a, lo, hi) => clamp(v + (Math.random() - .5) * a, lo, hi);
+    s.cpu = w(s.cpu, 9, 12, 72); s.gpu = w(s.gpu, 8, 30, 80); s.gpuTemp = clamp(44 + s.gpu * .2 + (Math.random() - .5), 40, 70);
+    s.ram = w(s.ram, .2, 17.6, 19.6); s.vram = w(s.vram, .1, 5.8, 6.8); s.down = w(s.down, .6, .2, 4.2); s.up = w(s.up, 60, 60, 480);
+    s.cpuHist.push(s.cpu); s.cpuHist.shift(); s.gpuHist.push(s.gpu); s.gpuHist.shift();
+    const n = D.net; n.latency = Math.random() < .03 ? 30 + Math.random() * 10 : 15 + Math.random() * 4; n.jitter = w(n.jitter, .3, 1.2, 3.4);
+    n.latHist.push(n.latency); n.latHist.shift(); n.nowDl = w(n.nowDl, 3, 4, 28); n.nowUl = w(n.nowUl, .5, .4, 4);
+    if (S.playing) { S.pos++; if (S.pos >= track().len) { S.track = (S.track + 1) % D.tracks.length; S.pos = 0; render(); } }
+  }
+  if (S.tRun) { S.tLeft--; if (S.tLeft <= 0) { S.tRun = false; S.sessions = Math.min(4, S.sessions + (S.tMode === 'focus' ? 1 : 0)); S.tLeft = tMode().min * 60; render(); toast(`${tMode().label} finished`); } }
+  refresh();
+}
+
+function fit() {
+  const dev = document.getElementById('device'), wrap = document.getElementById('device-wrap'), stage = document.getElementById('stage');
+  const [w, h] = SIZES[S.size];
+  screen.style.width = w + 'px'; screen.style.height = h + 'px';
+  const bezel = 22;
+  const sc = Math.min((stage.clientWidth - 16) / (w + bezel), (stage.clientHeight - 16) / (h + bezel), 1.6);
+  dev.style.transform = `scale(${sc})`;
+  wrap.style.width = (w + bezel) * sc + 'px'; wrap.style.height = (h + bezel) * sc + 'px';
+}
+
+function boot(t) {
+  theme = t;
+  screen = document.getElementById('screen');
+  screen.innerHTML = t.frame() + `<div class="offline-banner" role="status"><strong>Laptop not connected.</strong> <span>Showing the last data received. Plug in the USB cable or check that both devices are on the same Wi‑Fi.</span></div>`;
+  view = screen.querySelector('#view'); nav = screen.querySelector('#nav');
+  screen.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]'); if (!el || !screen.contains(el)) return;
+    A[el.dataset.act]?.(el.dataset.v, e, el);
+  });
+  screen.addEventListener('keydown', e => {
+    const el = e.target.closest('[role="button"][data-act]');
+    if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); A[el.dataset.act]?.(el.dataset.v, e, el); }
+  });
+  document.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
+    S.size = b.dataset.size; document.querySelectorAll('[data-size]').forEach(x => x.setAttribute('aria-pressed', x === b)); fit(); render();
+  }));
+  render(); fit();
+  addEventListener('resize', () => { fit(); refresh(); });
+  setInterval(tick, 1000);
+  document.fonts?.ready.then(() => refresh());
+}
+
+window.DP = { D, S, B, PB, A, icon, art, linePath, stepPath, arc, size, clamp, dur, ms, clock, ampm, now, nextEvent, printerPct, printerLeft, track, tMode, usageLevel, toast, render, refresh, boot, DAY, DAY3, MONTH, MON3, START };
+})();
+
+</script>
+<script>
+(() => {
+const { D, S, icon, art, linePath, stepPath, size, track, tMode, nextEvent, now } = DP;
+const PAGES = [['home', 'Home', 'home'], ['system', 'System', 'system'], ['claude', 'Claude', 'claude'], ['calendar', 'Calendar', 'calendar'], ['weather', 'Weather', 'weather'],
+  ['music', 'Music', 'music'], ['printer', 'Printer', 'printer'], ['timer', 'Timer', 'timer'], ['games', 'Games', 'games'], ['github', 'GitHub', 'github'], ['shortcuts', 'Keys', 'shortcuts']];
+
+const cell = (label, inner, cls = '', winCls = '', extra = '', cs = '') => `<div class="cell ${cls}" style="${cs}">${label ? `<div class="lab">${label}</div>` : ''}<div class="win ${winCls}" ${extra}>${inner}</div></div>`;
+const sg = (p, c, st = '') => `<div class="sg" style="--c:${c};${st}" ${p ? `data-p="${p}"` : ''}><i></i></div>`;
+const lvl = v => v < 50 ? 'var(--g)' : v < 80 ? 'var(--a)' : 'var(--r)';
+const lvlCls = v => v < 50 ? 'green' : v < 80 ? 'amber' : 'red';
+
+const pages = {
+  home: () => {
+    const n = nextEvent(), t = track();
+    return `<div class="g home">
+      ${cell('Clock', `<div class="dim" style="font-size:13px" data-b="date"></div>
+        <div class="rd bigclock amber" style="margin-bottom:auto"><span data-b="clock"></span><small data-b="ampm"></small></div>
+        <div style="position:absolute;left:12px;right:12px;bottom:6px">
+          <div class="strip" role="button" tabindex="0" data-act="go" data-v="calendar"><span class="led" style="--c:${n ? 'var(--sig)' : 'var(--wdim)'}"></span><div style="min-width:0"><b class="ell" data-b="nextTitle"></b><span class="dim"><span data-b="nextIn"></span>${n ? ', ' + n.start + ', ' + n.where : ''}</span></div></div>
+          <div class="strip" role="button" tabindex="0" data-act="go" data-v="music"><span class="led" style="--c:${S.playing ? 'var(--g)' : 'var(--wdim)'}"></span><div style="min-width:0"><b class="ell" data-b="trTitle"></b><span class="dim" data-b="trArtist"></span></div></div>
+        </div>`, 'main', '', 'style="display:flex;flex-direction:column"')}
+      ${cell(`${icon('weather')}Weather`, `<div class="rd white" style="font-size:54px">${D.wx.temp}°</div><div style="margin-top:6px">${D.wx.cond}</div><div class="dim">High ${D.wx.days[0][2]}°, low ${D.wx.days[0][3]}°</div>`, '', '', 'role="button" tabindex="0" data-act="go" data-v="weather"')}
+      ${cell(`${icon('claude')}Claude`, `<div class="row" style="align-items:baseline"><span class="rd ${lvlCls(D.claude.five)}" style="font-size:54px">${D.claude.five}<small>%</small></span><span class="sp"></span><span class="dim" style="text-align:right;font-size:11.5px">5-hour<br>resets in <span data-b="fiveReset"></span></span></div>
+        <div style="margin-top:10px">${sg('five', lvl(D.claude.five))}</div><div class="row dim" style="margin-top:10px;font-size:11.5px">Weekly<span class="sp"></span><span class="amber">${D.claude.week}%</span></div><div style="margin-top:4px">${sg('week', lvl(D.claude.week))}</div>`, '', '', 'role="button" tabindex="0" data-act="go" data-v="claude"')}
+      ${cell(`${icon('printer')}Printer`, `<div class="row" style="align-items:baseline"><span class="rd orange" style="font-size:54px"><span data-b="prPct"></span><small>%</small></span><span class="sp"></span><span class="dim" style="font-size:11.5px"><span data-b="prLeft"></span> left</span></div>
+        <div style="margin-top:10px">${sg('printer', 'var(--sig)')}</div><div class="dim ell" style="margin-top:9px;font-size:11.5px">${D.printer.job}, done <span data-b="prDone"></span></div>`, '', '', 'role="button" tabindex="0" data-act="go" data-v="printer"')}
+      ${cell(`${icon('system')}System`, `<div style="display:grid;gap:9px">${[['CPU', 'cpu', 'var(--b)', 'cpu'], ['GPU', 'gpu', 'var(--t)', 'gpu'], ['RAM', 'ram', 'var(--v)', 'ramPct']].map(([l, p, c, b]) =>
+        `<div style="display:grid;grid-template-columns:30px 1fr 30px;gap:8px;align-items:center"><span class="dim" style="font-size:11px">${l}</span>${sg(p, c)}<span class="rd" style="font-size:17px;text-align:right"><span data-b="${b}"></span></span></div>`).join('')}</div>`, '', '', 'role="button" tabindex="0" data-act="go" data-v="system"')}
+    </div>`;
+  },
+
+  system: () => {
+    const tabs = `<div class="row" style="gap:8px;margin-left:auto"><button class="key ${S.sysTab === 'pc' ? 'down lit' : ''}" style="height:26px;padding:0 12px;font-size:11.5px" data-act="tab" data-v="pc" aria-pressed="${S.sysTab === 'pc'}">Laptop</button><button class="key ${S.sysTab === 'net' ? 'down lit' : ''}" style="height:26px;padding:0 12px;font-size:11.5px" data-act="tab" data-v="net" aria-pressed="${S.sysTab === 'net'}">Internet</button></div>`;
+    if (S.sysTab === 'pc') {
+      const s = D.sys, ch = (l, p, b, c, sub, cls) => cell(l, `<div class="vs" style="--c:${c}" data-p="${p}"><i></i></div><div style="display:flex;flex-direction:column;min-width:0"><span class="rd n ${cls}"><span data-b="${b}"></span><small>%</small></span><span class="sub">${sub}</span></div>`, 'chan');
+      return `<div class="cell" style="height:100%"><div class="row" style="margin-bottom:6px"><span class="lab" style="margin:0 0 0 3px">Channels</span>${tabs}</div>
+        <div class="ch4">${ch('CPU', 'cpu', 'cpu', 'var(--b)', '8 cores<br>16 threads', 'white')}${ch('GPU', 'gpu', 'gpu', 'var(--t)', '<span data-b="gpuTemp"></span> °C', 'white')}${ch('RAM', 'ram', 'ramPct', 'var(--v)', `<span data-b="ram"></span> / ${s.ramTotal} GB`, 'white')}${ch('VRAM', 'vram', 'vramPct', 'var(--pk)', `<span data-b="vram"></span> / ${s.vramTotal} GB`, 'white')}</div>
+        <div class="cell scope" style="flex:1;margin-top:10px">${cell('', `<div class="wl"><b style="color:var(--b)">CPU</b><b style="color:var(--t)">GPU</b><span><span data-b="down"></span> MB/s down</span><span><span data-b="up"></span> KB/s up</span></div><div data-c="cpugpu" style="height:100%"></div>`)}</div>
+        <div class="facefoot"><span>${s.cpuName} / ${s.gpuName}</span><span>Disk ${s.disk}% used</span></div></div>`;
+    }
+    const n = D.net;
+    return `<div class="cell" style="height:100%"><div class="row" style="margin-bottom:6px"><span class="lab" style="margin:0 0 0 3px">Network</span>${tabs}</div>
+      <div class="g" style="grid-template-columns:1fr 1fr 1.25fr;grid-template-rows:auto 1fr auto;height:auto;flex:1">
+      ${cell('Latency', `<span class="rd amber" style="font-size:46px"><span data-b="latency"></span><small>ms</small></span><div class="dim" style="margin-top:6px;font-size:11.5px">Jitter <span data-b="jitter"></span> ms, loss ${n.loss}%</div>`)}
+      ${cell('Status', `<div class="rd ${S.conn === 'off' ? 'red' : 'green'}" style="font-size:38px"><span class="led" style="--c:${S.conn === 'off' ? 'var(--r)' : 'var(--g)'};width:10px;height:10px;vertical-align:8px"></span>${S.conn === 'off' ? 'No data' : 'Online'}</div><div class="dim" style="margin-top:6px;font-size:11.5px">Up ${n.uptime}, last drop ${n.lastDrop}</div>`)}
+      ${cell('Data used', `<div class="quad"><div><div class="rd white">${n.today}<small>GB</small></div><span>Today</span></div><div><div class="rd white">${n.month.toFixed(0)}<small>GB</small></div><span>This month</span></div></div>`)}
+      <div class="cell scope" style="grid-column:1/-1">${cell('Latency, last 2 minutes', `<div class="wl"><span>Scale 0–50 ms</span></div><div data-c="lat" style="height:100%"></div>`)}</div>
+      ${cell('Speed test', `<div class="row" style="gap:24px"><span class="rd white" style="font-size:38px"><span data-b="stDl"></span><small>Mbps down</small></span><span class="rd white" style="font-size:38px"><span data-b="stUl"></span><small>Mbps up</small></span><span class="sp"></span>
+        <span class="dim" style="font-size:11.5px;text-align:right"><span data-b="stWhen"></span><br>Ping <span data-b="stPing"></span> ms</span></div>${S.st.running ? `<div style="margin-top:8px">${sg('st', 'var(--sig)')}</div>` : ''}`, '', '', '', 'grid-column:1/3')}
+      <div class="cell" style="justify-content:flex-end"><button class="key ${S.st.running ? 'lit down' : ''}" style="height:58px;width:100%;font-size:14px" data-act="speed" ${S.st.running ? 'disabled' : ''}><span data-b="stBtn"></span></button></div>
+      </div></div>`;
+  },
+
+  claude: () => {
+    const c = D.claude, mx = Math.max(...c.days);
+    return `<div class="g cl">
+      ${cell('5-hour limit', `<span class="rd ${lvlCls(c.five)}" style="font-size:58px">${c.five}<small>%</small></span><div style="margin:10px 0 8px">${sg('five', lvl(c.five))}</div><div class="dim">Resets in <span class="white" data-b="fiveReset"></span></div>`)}
+      ${cell('Weekly limit', `<span class="rd ${lvlCls(c.week)}" style="font-size:58px">${c.week}<small>%</small></span><div style="margin:10px 0 8px">${sg('week', lvl(c.week))}</div><div class="dim">Resets <span class="white">${c.weekReset}</span></div>`)}
+      ${cell('Today', `<div class="quad">${[['Tokens', c.tokens], ['Output', c.output], ['Messages', c.messages], ['Last hour', c.lastHour]].map(([k, v]) => `<div><div class="rd white">${v}</div><span>${k}</span></div>`).join('')}</div>`)}
+      ${cell(`Last 7 days<span class="sp"></span>Peak ${mx.toFixed(1)}M tokens`, `<div class="hist">${c.days.map((v, i) => `<div class="vbar" style="${i === 6 ? 'color:var(--wink);font-weight:700' : ''}"><div class="vs" style="--c:var(--sig);--v:${v / mx * 100}"><i></i></div>${c.labels[i]}</div>`).join('')}</div>`, '', '', '', 'grid-column:1/3')}
+      ${cell('Models today', `<div style="display:grid;gap:14px;margin-top:2px">${c.models.map(([m, v]) => `<div><div class="row" style="margin-bottom:5px"><span style="font-weight:600">${m}</span><span class="sp"></span><span class="rd" style="font-size:18px">${v.toFixed(1)}M</span></div>${sg('', 'var(--sig)', `--p:${v / c.models[0][1]}`)}</div>`).join('')}</div>`)}
+    </div>`;
+  },
+
+  calendar: () => {
+    const n = nextEvent(), nm = now().getHours() * 60 + now().getMinutes();
+    const len = { 'Team standup': 15, 'Lunch with Sam': 60, 'Design review': 45 };
+    return `<div class="g cal">
+      ${cell(`Today, <span data-b="date"></span>`, `<div class="agenda">${D.cal.today.map(e => `<div class="ag ${e.mins + (len[e.title] || 30) < nm ? 'past' : ''}">
+        <span class="rd ${e === n ? 'amber' : 'white'}">${e.start.replace(/ (AM|PM)/, '<small>$1</small>')}</span><span class="led" style="--c:${e.color}"></span>
+        <div style="min-width:0"><b class="ell">${e.title}</b><span class="dim">${e.where}, ${e.cal.toLowerCase()}, until ${e.end}</span></div>
+        ${e === n ? '<span class="rd orange" style="font-size:18px" data-b="nextIn"></span>' : ''}</div>`).join('')}</div>`)}
+      ${cell('Later this week', `<div class="agenda">${D.cal.later.map(e => `<div class="ag" style="grid-template-columns:8px 1fr;padding:9px 2px"><span class="led" style="--c:${e.color}"></span><div><b style="font-size:13.5px">${e.title}</b><span class="dim">${e.day}, ${e.start}</span></div></div>`).join('')}</div>
+        <div class="dim" style="position:absolute;bottom:10px;left:12px;font-size:11.5px">Nothing else in the next 7 days</div>`)}
+    </div>`;
+  },
+
+  weather: () => {
+    const w = D.wx, lo = Math.min(...w.hours.map(h => h[1])) - 4, hi = Math.max(...w.hours.map(h => h[1]));
+    return `<div class="g wx">
+      ${cell(`${w.city}`, `<div class="row" style="align-items:flex-start"><span class="rd white" style="font-size:80px">${w.temp}°</span><span class="sp"></span><span style="font-size:44px;color:var(--wink)">${icon(w.icon)}</span></div>
+        <div style="font-size:16px;margin-top:6px">${w.cond}</div>
+        <div class="quad" style="margin-top:10px;gap:8px 14px">${[['Feels like', w.feels + '°'], ['Humidity', w.humidity + '%'], ['Wind', w.wind + ' mph'], ['Updated', w.updated]].map(([k, v]) => `<div><div class="rd white" style="font-size:20px">${v}</div><span>${k}</span></div>`).join('')}</div>`)}
+      ${cell('Next 12 hours', `<div class="wxcols">${w.hours.map(([t, v]) => `<div><span class="rd">${v}°</span><div class="vs" style="flex:1;--p:${(v - lo) / (hi - lo)}"><i></i></div>${t}</div>`).join('')}</div>`)}
+      ${cell('', `<div class="days6">${w.days.map(([d, i, h, l, p]) => `<div>${d}${icon(i)}<span class="rd">${h}° <span class="dim" style="font-size:.8em">${l}°</span></span><span style="color:var(--b);min-height:14px">${p ? p + '% rain' : ''}</span></div>`).join('')}</div>`, '', '', 'style="padding:8px 6px"', 'grid-column:1/-1')}
+    </div>`;
+  },
+
+  music: () => {
+    const t = track();
+    return `<div class="g mu"><div class="bezel">${art(t.hue, S.track + 1)}</div><div class="cell">
+      ${cell('Now playing, Spotify', `<h2 class="white" data-b="trTitle"></h2><div style="font-size:15px;font-weight:600" data-b="trArtist"></div><div class="dim" data-b="trAlbum"></div>
+        <div style="margin-top:auto;cursor:pointer;padding:6px 0" data-act="seek" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="${t.len}"><div class="sg" style="--c:var(--g);--n:40;--st:2.5%" data-p="music"><i></i></div></div>
+        <div class="row rd" style="font-size:18px;margin-top:4px"><span class="green" data-b="trPos"></span><span class="sp"></span><span class="dim" data-b="trLen"></span></div>`, '', '', 'style="display:flex;flex-direction:column"')}
+      <div class="transport"><button class="key" data-act="prev" aria-label="Previous track">${icon('prev')}</button><button class="key play dark ${S.playing ? 'lit' : ''}" data-act="play" aria-label="${S.playing ? 'Pause' : 'Play'}">${icon(S.playing ? 'pause' : 'play')}</button><button class="key" data-act="next" aria-label="Next track">${icon('next')}</button></div>
+    </div></div>`;
+  },
+
+  printer: () => {
+    const p = D.printer;
+    return `<div class="g pr">
+      ${cell(`${p.name} <span class="sp"></span><span class="led" style="--c:var(--sig);margin:0"></span>${p.status}`, `<div class="row" style="align-items:flex-end"><span class="rd pr-n orange"><span data-b="prPct"></span><small>%</small></span><span class="sp"></span>
+        <div style="text-align:right"><div class="rd white" style="font-size:30px"><span data-b="prLeft"></span></div><span class="dim">remaining</span></div></div>
+        <div style="margin:12px 0 10px">${sg('printer', 'var(--sig)', '--n:40;--st:2.5%;height:14px')}</div>
+        <div class="row dim"><span>${p.job}, ${p.speed.toLowerCase()} speed</span><span class="sp"></span><span>Layer <span class="white" data-b="prLayer"></span> / ${p.layers}</span><span style="margin-left:14px">Done <span class="white" data-b="prDone"></span></span></div>`)}
+      <div class="cell"><div class="lab">Temperatures</div><div class="temps3" style="flex:1">${[['Nozzle', p.nozzle, p.nozzleT], ['Bed', p.bed, p.bedT], ['Chamber', p.chamber, 0]].map(([l, v, t]) => `<div class="win" style="display:flex;flex-direction:column;justify-content:space-between"><span class="dim" style="font-size:11px">${l}</span><span class="rd amber">${v}°</span><span class="dim" style="font-size:11px">${t ? 'set ' + t + '°' : 'ambient'}</span></div>`).join('')}</div></div>
+      <div class="cell" style="grid-column:1/-1"><div class="lab">Filament</div><div class="slots">${p.ams.map((a, i) => `<div class="slot ${a.active ? 'on' : ''}" style="--c:${a.c}"><i></i>Slot ${i + 1}, ${a.n} ${a.t}</div>`).join('')}</div></div>
+    </div>`;
+  },
+
+  timer: () => `<div class="g tm">
+      ${cell(tMode().label, `<div style="display:flex;flex-direction:column;justify-content:center;height:100%"><div class="rd tm-n ${S.tRun ? 'orange' : 'amber'}" data-b="timer"></div>
+        <div style="margin:18px 6% 0">${sg('timer', 'var(--sig)', '--n:25;--st:4%;height:12px')}</div></div>`)}
+      <div class="cell" style="gap:10px"><div class="lab" style="margin-bottom:0">Mode</div><div class="modes">${D.timerModes.map(m => `<button class="key ${m.id === S.tMode ? 'down lit' : ''}" data-act="tMode" data-v="${m.id}" aria-pressed="${m.id === S.tMode}">${m.label}<span class="sp"></span><span style="color:var(--lab);font-weight:500">${m.min} min</span></button>`).join('')}</div>
+        <div class="lab" style="margin:6px 0 0">Control</div><div class="row" style="gap:8px"><button class="key dark ${S.tRun ? 'lit' : ''}" style="flex:1;height:50px" data-act="tStart"><span data-b="tLabel"></span></button><button class="key" style="height:50px" data-act="tReset" aria-label="Reset">${icon('reset')}</button></div>
+        <div class="lab" style="margin:auto 0 0">${S.sessions} of 4 focus sessions today ${[0, 1, 2, 3].map(i => `<span class="led" style="--c:${i < S.sessions ? 'var(--sig)' : '#B3B7BC'};box-shadow:${i < S.sessions ? '0 0 6px var(--sig)' : 'inset 0 1px 1px rgba(0,0,0,.3)'};margin:0 0 0 2px"></span>`).join('')}</div>
+      </div></div>`,
+
+  games: () => {
+    const g = D.games.now;
+    return `<div class="g gm"><div class="bezel" style="aspect-ratio:auto;width:100%">${art(g.hue, 3, { w: 190 })}</div>
+      ${cell('Now playing', `<h2 class="rd white" style="font-size:36px;line-height:1">${g.title}</h2><div class="rd green" style="font-size:44px;margin-top:14px"><span data-b="gameSession"></span></div><div class="dim">this session</div>
+        <div class="quad" style="margin-top:14px"><div><div class="rd white">${g.total}<small>h</small></div><span>Total played</span></div><div><div class="rd white">${g.friends}</div><span>Friends in game</span></div></div>`)}
+      <div class="carts">${D.games.recent.map(([t, h, hue], i) => `<button class="cart" data-act="game" data-v="${t}" aria-label="Play ${t}"><div class="im">${art(hue, i + 2)}</div><div style="min-width:0"><b class="ell">${t}</b><span>${h} h played</span></div></button>`).join('')}</div>
+    </div>`;
+  },
+
+  github: () => {
+    const g = D.gh, mx = Math.max(...g.week, ...g.lastWeek), td = DP.START.getDay();
+    return `<div class="g gh">
+      <div class="cell matrix">${cell(`Last year<span class="sp"></span>${g.total} contributions, ${g.commits} commits, ${g.private} private, ${g.issues} issue`, `<div data-c="heat"></div>`)}</div>
+      ${cell('Streak', `<span class="rd green" style="font-size:72px">${g.streak}<small>days</small></span><div class="dim" style="margin-top:auto">Longest <span class="white">${g.longest} days</span><br>Best <span class="white">${g.best} on ${g.bestDay}</span></div>`, '', '', 'style="display:flex;flex-direction:column"')}
+      ${cell(`This week<span class="sp"></span><span style="color:#1F8A4C">+${g.delta} vs last</span>`, `<div class="row" style="gap:12px;height:100%"><span class="rd white" style="font-size:44px;align-self:flex-start">${g.weekTotal}</span><div class="wkb" style="flex:1">${g.week.map((v, i) => `<div class="vbar ${i === td ? 'tdy' : ''}"><div class="vs" style="--v:${(i > td ? 0 : v) / mx * 100}"><i></i></div>${'SMTWTFS'[i]}</div>`).join('')}</div></div>`)}
+      ${cell('Top repos', g.repos.map(([r, n]) => `<div class="repo"><span>${r}</span><span class="rd" style="font-size:16px">${n}</span>${sg('', 'var(--g)', `--n:24;--st:4.1667%;height:5px;--p:${n / g.repos[0][1]}`)}</div>`).join(''))}
+    </div>`;
+  },
+
+  shortcuts: () => `<div class="g sc">${D.shortcuts.map(s => {
+    const on = (s.id === 'mic' && S.mic) || (s.id === 'sound' && S.sound);
+    const ic = s.id === 'mic' && S.mic ? 'micOff' : s.id === 'sound' && S.sound ? 'speakerOff' : s.icon;
+    const label = s.id === 'mic' ? (S.mic ? 'Mic muted' : 'Mute mic') : s.id === 'sound' ? (S.sound ? 'Sound muted' : 'Mute sound') : s.label;
+    const tone = s.id === 'lock' ? 'sig' : (s.id === 'term' ? 'dark' : '');
+    return `<button class="cap ${tone} ${on ? 'on' : ''}" data-act="sc" data-v="${s.id}" aria-pressed="${on}">${icon(ic)}${label}${s.id.startsWith('vol') ? `<small>Volume ${S.vol}%</small>` : ''}</button>`;
+  }).join('')}</div>`
+};
+
+const scope = (w, h, inner) => {
+  let gr = '';
+  for (let i = 1; i < 10; i++) gr += `<line x1="${(w * i / 10).toFixed(1)}" x2="${(w * i / 10).toFixed(1)}" y1="0" y2="${h}" stroke="#1E2226" stroke-width="1"/>`;
+  for (let i = 1; i < 4; i++) gr += `<line y1="${(h * i / 4).toFixed(1)}" y2="${(h * i / 4).toFixed(1)}" x1="0" x2="${w}" stroke="#1E2226" stroke-width="1"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${gr}${inner}</svg>`;
+};
+const trace = (d, c, sw = 1.8) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${sw * 3}" stroke-opacity=".22" style="filter:blur(2px)"/><path d="${d}" fill="none" stroke="${c}" stroke-width="${sw}"/>`;
+
+const charts = {
+  cpugpu: el => { const [w, h] = size(el); return scope(w, h, trace(stepPath(D.sys.gpuHist, w, h, 0, 100), 'var(--t)') + trace(stepPath(D.sys.cpuHist, w, h, 0, 100), 'var(--b)')); },
+  lat: el => { const [w, h] = size(el); return scope(w, h, trace(linePath(D.net.latHist, w, h, 0, 50, 3), 'var(--a)', 1.5)); },
+  heat: el => {
+    const g = D.gh, w = el.clientWidth, lw = 24, cw = (w - lw) / 53, cs = cw - 2.2, top = 13, H = top + 7 * cw;
+    const col = v => v === 0 ? ['#1D2124', 0] : v < 4 ? ['#14522C', 0] : v < 10 ? ['#1E9A4D', .3] : v < 20 ? ['#36D06E', .6] : ['#7DFFA9', 1];
+    let s = g.months.map(m => `<text x="${lw + m.i * cw}" y="9">${m.label}</text>`).join('') + ['Mon', 'Wed', 'Fri'].map((d, i) => `<text x="0" y="${top + (1 + i * 2) * cw + cs * .78}">${d}</text>`).join('');
+    g.weeks.forEach((c, x) => c.forEach((v, y) => { if (v == null) return; const [f, gl] = col(v); s += `<rect x="${(lw + x * cw).toFixed(1)}" y="${(top + y * cw).toFixed(1)}" width="${cs.toFixed(1)}" height="${cs.toFixed(1)}" rx="1.5" fill="${f}"${gl ? ` style="filter:drop-shadow(0 0 ${2 * gl}px ${f})"` : ''}/>`; }));
+    return `<svg viewBox="0 0 ${w} ${H}" role="img" aria-label="Contribution calendar for the last year">${s}</svg>`;
+  }
+};
+
+const nav = () => `<div class="keys">${PAGES.map(([id, l, ic]) => `<button class="k" data-act="go" data-v="${id}" ${S.page === id ? 'aria-current="page"' : ''} aria-label="${l}">${icon(ic)}${l}</button>`).join('')}</div>
+  <button class="stat" data-act="conn" aria-label="Connection status. Tap to preview other states"><span class="rd amber" data-b="clock"></span><span class="leds"><span><span class="led"></span>Laptop</span><span><span class="led" style="${S.conn === 'off' ? '--c:var(--r)' : ''}"></span><span data-b="conn"></span></span></span></button>`;
+
+DP.boot({ frame: () => `<div class="pw"><nav id="nav" class="top" aria-label="Pages"></nav><main id="view" class="view"></main></div>`, nav, pages, charts });
+})();
+
+</script>
+</body>
+</html>
