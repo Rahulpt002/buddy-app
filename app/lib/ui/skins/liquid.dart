@@ -110,7 +110,8 @@ class _LiquidShell extends ConsumerWidget {
     final tinted = ref.watch(lqGlassModeProvider) == LqGlassMode.tinted;
     final offline = !a.conn.live;
     final base = LiquidSkin.walls[a.current] ?? LiquidSkin.walls[PageId.home]!;
-    Widget wall(List<Color> c) => LqWall(colors: c, gray: offline, shade: tinted ? .22 : .12);
+    final playing = a.current == PageId.music && (topicData<MediaData>(ref, 'media')?.playing ?? false);
+    Widget wall(List<Color> c) => LqWall(colors: c, gray: offline, shade: tinted ? .22 : .12, flow: playing && !offline);
     return LqGlassTint(
       tinted: tinted,
       child: Stack(fit: StackFit.expand, children: [
@@ -277,9 +278,12 @@ class _TabBar extends StatelessWidget {
 /// over a dark base. Eases to new colours over 1 s when the page (or song) changes;
 /// greyed out while the laptop is offline. Updates every frame while on screen.
 class LqWall extends StatefulWidget {
-  const LqWall({super.key, required this.colors, this.gray = false, this.shade = .12});
+  const LqWall({super.key, required this.colors, this.gray = false, this.shade = .12, this.flow = false});
   final List<Color> colors; // c1, c2, c3, base
   final bool gray;
+
+  /// Music playing (on the Music page): the blobs swirl and breathe instead of drifting.
+  final bool flow;
   final double shade;
   @override
   State<LqWall> createState() => _LqWallState();
@@ -294,6 +298,7 @@ class _LqWallState extends State<LqWall> with SingleTickerProviderStateMixin {
   late List<Color> _from = widget.colors, _to = widget.colors;
   double _changedAt = -10;
   late double _gray = widget.gray ? 1 : 0;
+  late double _flow = widget.flow ? 1 : 0;
 
   @override
   void initState() {
@@ -302,6 +307,8 @@ class _LqWallState extends State<LqWall> with SingleTickerProviderStateMixin {
       _t.value = e.inMicroseconds / 1e6;
       final target = widget.gray ? 1.0 : 0.0;
       _gray += (target - _gray) * .08;
+      // Ease into / out of the swirl over ~2 s, so play / pause never jumps.
+      _flow += ((widget.flow ? 1.0 : 0.0) - _flow) * .02;
     })
       ..start();
     (_wallProgram ??= ui.FragmentProgram.fromAsset('shaders/liquid_wall.frag')
@@ -366,7 +373,8 @@ class _WallPainter extends CustomPainter {
       }
       sh
         ..setFloat(i++, s.widget.shade)
-        ..setFloat(i++, s._gray);
+        ..setFloat(i++, s._gray)
+        ..setFloat(i++, s._flow);
       canvas.drawRect(full, Paint()..shader = sh);
       return;
     }
