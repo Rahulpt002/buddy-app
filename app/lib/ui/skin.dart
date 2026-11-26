@@ -14,6 +14,7 @@ import 'skins/departures.dart';
 import 'skins/expressive.dart';
 import 'skins/sketch.dart';
 import 'skins/diorama.dart';
+import 'skins/liquid.dart';
 import 'skins/glow.dart';
 import 'skins/panel.dart';
 import 'skins/slate.dart';
@@ -148,6 +149,7 @@ abstract class Skin {
         SkinId.expressive => const ExpressiveSkin(),
         SkinId.sketch => const SketchSkin(),
         SkinId.diorama => const DioramaSkin(),
+        SkinId.liquid => const LiquidSkin(),
       };
 }
 

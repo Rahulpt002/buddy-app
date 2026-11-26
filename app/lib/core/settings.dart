@@ -17,7 +17,8 @@ enum SkinId {
   departures('Departures', 'Split-flap departures board; values flip when they change.'),
   expressive('Expressive', 'Native Android, Material 3 Expressive.'),
   sketch('Sketch', 'Hand-drawn whiteboard: wobbly boxes, hatching, sticky notes.'),
-  diorama('Diorama', 'A cozy isometric room where every object on your desk is live.');
+  diorama('Diorama', 'A cozy isometric room where every object on your desk is live.'),
+  liquid('Liquid', 'Liquid Glass: clear glass floating over a living wallpaper.');
 
   const SkinId(this.label, this.blurb);
   final String label, blurb;

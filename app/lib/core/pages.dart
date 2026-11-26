@@ -4,7 +4,7 @@ enum PageId {
   claude('Claude', 'claude', {'claude'}),
   calendar('Calendar', 'calendar', {'calendar'}),
   weather('Weather', 'weather', {}),
-  music('Music', 'music', {'media'}),
+  music('Music', 'music', {'media', 'shortcuts'}), // shortcuts: the laptop's volume
   hotspot('Hotspot', 'hotspot', {'hotspot'}),
   timer('Timer', 'timer', {}),
   slack('Slack', 'slack', {'slack'}),

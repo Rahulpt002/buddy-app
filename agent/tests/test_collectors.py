@@ -95,3 +95,22 @@ def test_now_playing_applescript_compiles(tmp_path):
     src.write_text(_QUERY)
     r = subprocess.run(["osacompile", "-o", str(tmp_path / "q.scpt"), str(src)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+async def test_volume_set_clamps_and_rejects_bad_values(tmp_path):
+    from deskpanel_agent.collectors.shortcuts import ShortcutBackend
+
+    class Vol(ShortcutBackend):
+        def __init__(self):
+            self.set = []
+
+        async def set_volume(self, pct):
+            self.set.append(pct)
+
+    b = Vol()
+    c = ShortcutsCollector(Store(tmp_path / "v.db"), [], backend=b)
+    assert (await c.set_volume({"pct": 57.4}, None)) == {"volume_pct": 57}
+    assert (await c.set_volume({"pct": 140}, None)) == {"volume_pct": 100}
+    assert b.set == [57, 100]
+    with pytest.raises(ActionError):
+        await c.set_volume({"pct": "loud"}, None)

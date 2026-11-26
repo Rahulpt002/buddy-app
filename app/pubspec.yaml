@@ -69,6 +69,7 @@ flutter:
   uses-material-design: true
   shaders:
     - shaders/aurora.frag
+    - shaders/liquid_wall.frag
   assets:
     - assets/fixtures/
     - assets/sounds/

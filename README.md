@@ -12,10 +12,11 @@ shared/  protocol.md (message schema) and fixtures/ (one sample payload per topi
 screens sample/   design references: original screenshots + the theme concepts
 ```
 
-Twelve switchable themes (**Settings → Theme**), each a full design with its own navigation
+Thirteen switchable themes (**Settings → Theme**), each a full design with its own navigation
 and page layouts: **Slate** (rounded cards, icon rail; matches the reference screenshots),
 **Glow**, **Panel**, **Ink**, **Mosaic**, **Cockpit**, **Blueprint**, **Terminal**, **Departures**,
-**Expressive**, **Sketch** and **Diorama** (concepts in `screens sample/`).
+**Expressive**, **Sketch**, **Diorama** and **Liquid** (Liquid Glass over a living wallpaper, with
+a Clear / Tinted switch in its top bar) (concepts in `screens sample/`).
 
 > Status: all 7 build steps done. Every page reads real data from the Mac or the phone;
 > GitHub, Slack and Hotspot show a setup message until they're set up (section 8).

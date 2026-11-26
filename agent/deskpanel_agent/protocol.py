@@ -29,6 +29,7 @@ ACTIONS = (
     "slack.read",
     "slack.open",
     "mouse.setup",
+    "volume.set",
     "mouse.displays",
 )
 

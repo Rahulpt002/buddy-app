@@ -35,6 +35,9 @@ class ShortcutBackend:
     async def run(self, tile_id: str, audio: AudioState | None) -> str:
         raise ActionError("unsupported", "Not supported on this OS yet")
 
+    async def set_volume(self, pct: int) -> None:
+        raise ActionError("unsupported", "Not supported on this OS yet")
+
 
 _VOL = re.compile(r"output volume:([^,]+), input volume:([^,]+), alert volume:[^,]+, output muted:(\w+)")
 
@@ -54,6 +57,9 @@ class MacShortcuts(ShortcutBackend):
             return None
         num = lambda s: int(s) if s.isdigit() else 0  # noqa: E731  ("missing value" on some outputs)
         return AudioState(num(m.group(1)), num(m.group(2)), m.group(3) == "true")
+
+    async def set_volume(self, pct: int) -> None:
+        await osascript(f"set volume output volume {pct} without output muted")
 
     async def run(self, tile_id: str, a: AudioState | None) -> str:
         if tile_id == "mic.toggle":
@@ -103,7 +109,7 @@ class ShortcutsCollector(BaseProvider):
         self.backend = backend or (MacShortcuts(store) if platform.system() == "Darwin" else ShortcutBackend())
         self.custom = {c.id: c for c in custom if c.id not in {t.id for t in BUILTIN_TILES}}
         self.audio: AudioState | None = None
-        self.actions = {"shortcut.run": self.run_tile}
+        self.actions = {"shortcut.run": self.run_tile, "volume.set": self.set_volume}
         # "Watch on phone" reads the Mac's browser (AppleScript), so only with the Mac backend.
         self._browser = isinstance(self.backend, MacShortcuts)
         self._kick = asyncio.Event()
@@ -171,3 +177,13 @@ class ShortcutsCollector(BaseProvider):
             msg += ". " + r["hint"]
         log.info("phone.watch: sent a %s link to the phone", "YouTube" if "youtu" in r["open_url"] else "web")
         return {"message": msg, "open_url": r["open_url"]}
+
+    async def set_volume(self, params: dict, progress: Progress) -> dict:
+        """`volume.set {pct}`: the laptop's output volume to an exact level (a volume slider)."""
+        pct = params.get("pct")
+        if not isinstance(pct, (int, float)) or isinstance(pct, bool):
+            raise ActionError("bad_request", "pct (0-100) required")
+        v = max(0, min(100, round(pct)))
+        await self.backend.set_volume(v)
+        self._kick.set()
+        return {"volume_pct": v}

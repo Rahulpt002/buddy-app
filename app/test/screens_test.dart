@@ -20,6 +20,7 @@ import 'package:deskpanel/core/data/topics.dart';
 import 'package:deskpanel/core/pages.dart';
 import 'package:deskpanel/core/settings.dart';
 import 'package:deskpanel/ui/screens/mouse_arrange_screen.dart';
+import 'package:deskpanel/ui/icons.dart';
 import 'package:deskpanel/ui/pages/kit.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -167,6 +168,8 @@ void main() {
       testWidgets(name, skip: !enabled, (tester) async {
         SharedPreferences.setMockInitialValues({
           'settings.v1': jsonEncode(AppSettings(skin: skin, shift: ShiftLevel.off, idleDimMin: 0, saverMin: 0, navStyle: Platform.environment['NAV'] == 'bottom' ? NavStyle.bottom : NavStyle.rail).toJson()),
+          // GLASS=tinted: the Liquid theme's Tinted glass.
+          if (Platform.environment['GLASS'] != null) 'liquid.glass': Platform.environment['GLASS']!,
         });
         final prefs = await SharedPreferences.getInstance();
         tester.view.physicalSize = const ui.Size(915 * 2, 412 * 2);
@@ -192,6 +195,15 @@ void main() {
           await tester.pump(const Duration(milliseconds: 400));
         }
         await tester.pump(const Duration(seconds: 2));
+        // TAP=<icon name>: tap that icon first (e.g. TAP=speaker opens Liquid's volume bar).
+        final tap = Platform.environment['TAP'];
+        if (tap != null) {
+          await tester.tap(find.byWidgetPredicate((w) => w is DpIcon && w.name == tap).first);
+          await tester.pump(); // starts the animations
+          for (var i = 0; i < 6; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+        }
         final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
         final bytes = await tester.runAsync(() async {
           final img = await boundary.toImage(pixelRatio: 2);
