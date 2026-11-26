@@ -1,9 +1,11 @@
 // Concept 12 — Sketch pages. Sizes follow deskpanel-concept-12-sketch.html (CSS px = logical px).
 // Everything is "hand drawn" with a seeded RNG (same generator as the concept) so shapes
 // wobble but stay put between rebuilds.
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/scheduler.dart' as sch;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -978,7 +980,9 @@ class _Pc extends ConsumerWidget {
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
-    Widget metric(String label, String k, double? v, String sub, _C col) => Expanded(
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuT = s.cpu.tempC;
+    Widget metric(String label, String k, double? v, String sub, _C col, {String? aside}) => Expanded(
       child: _bx(
         seed: 'm$k',
         Column(
@@ -987,7 +991,19 @@ class _Pc extends ConsumerWidget {
             _hd(label),
             Padding(
               padding: const EdgeInsets.fromLTRB(0, 2, 0, 6),
-              child: v == null ? _big('N/A', 44, c: _sc(col)) : _big('${v.round()}', 44, unit: '%', c: _sc(col)),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: v == null ? _big('N/A', 44, c: _sc(col)) : _big('${v.round()}', 44, unit: '%', c: _sc(col)),
+                  ),
+                  // A small handwritten aside by the figure (the CPU's temperature).
+                  if (aside != null) ...[
+                    const SizedBox(width: 10),
+                    Padding(padding: const EdgeInsets.only(bottom: 5), child: Text(aside, style: _handS(14))),
+                  ],
+                ],
+              ),
             ),
             _Hb((v ?? 0) / 100, col, k: k),
             const SizedBox(height: 6),
@@ -1009,6 +1025,7 @@ class _Pc extends ConsumerWidget {
                 s.cpu.pct,
                 s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : s.cpu.model,
                 _C.blue,
+                aside: cpuT == null ? null : '${temp(cpuT, f)}°${f ? 'F' : 'C'}',
               ),
               const SizedBox(width: _gap),
               metric(
@@ -1100,6 +1117,7 @@ class _Internet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final n = topicData<NetworkData>(ref, 'network');
+    final sys = topicData<SystemData>(ref, 'system');
     final live = ref.watch(agentProvider).live;
     if (n == null) return _bx(seed: 'wait', Center(child: _note('waiting for network data…', size: 14)));
     final st = n.speedtest, last = st.last, prog = st.progress;
@@ -1225,20 +1243,70 @@ class _Internet extends ConsumerWidget {
           ),
           const SizedBox(height: _gap),
           Expanded(
-            child: _bx(
-              seed: 'latc',
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _hd('latency, last 2 minutes, 0 to 50 ms'),
-                  Expanded(
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      painter: _Lines('lat', [_Series(n.latencyHistory, 0, 50, _sc(_C.blue), 1.6)]),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: _bx(
+                    seed: 'latc',
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _hd('latency, last 2 minutes, 0 to 50 ms'),
+                        Expanded(
+                          child: CustomPaint(
+                            size: Size.infinite,
+                            painter: _Lines('lat', [_Series(n.latencyHistory, 0, 50, _sc(_C.blue), 1.6)]),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                if (sys != null) ...[const SizedBox(width: _gap), Expanded(flex: 2, child: _traffic(sys))],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A sticky note of what the laptop is moving right now, with its last minute scribbled.
+  Widget _traffic(SystemData s) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    final peak = [...s.downHistory, ...s.upHistory, s.downBps, s.upBps].fold(64 * 1024.0, math.max) * 1.1;
+    return _bx(
+      seed: 'now',
+      f: _C.yellow,
+      m: _Mode.solid,
+      tilt: -.8,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _hd('your laptop right now'),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                _big(down, 34, unit: '$downU down', c: _sc(_C.blue), fit: false),
+                const SizedBox(width: 14),
+                _big(up, 34, unit: '$upU up', c: _sc(_C.violet), fit: false),
+              ],
+            ),
+          ),
+          Expanded(
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _Lines('now', [
+                _Series(s.upHistory, 0, peak, _sc(_C.violet), 1.6),
+                _Series(s.downHistory, 0, peak, _sc(_C.blue)),
+              ]),
             ),
           ),
         ],
@@ -1739,11 +1807,31 @@ class _Music extends ConsumerWidget {
     final m = topicData<MediaData>(ref, 'media')!;
     final art = topicData<MediaArt>(ref, 'media.art');
     final skew = ref.read(agentProvider.notifier).clockSkewMs;
+    // While music plays, hand-drawn notes slip out from behind the polaroid's corner and
+    // drift up into the open space above the song, and a scribbled sound wave wiggles by
+    // the buttons.
+    return _Boil(
+      playing: m.playing,
+      builder: (context, k) => Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: RepaintBoundary(key: k.stageKey, child: CustomPaint(painter: _NotesPainter(k))),
+            ),
+          ),
+          _body(context, ref, m, art, skew, k),
+        ],
+      ),
+    );
+  }
+
+  Widget _body(BuildContext context, WidgetRef ref, MediaData m, MediaArt? art, int skew, _SkClock k) {
     return Row(
       children: [
         LayoutBuilder(
           builder: (context, c) {
-            final side = math.min(c.maxHeight, 320.0);
+            final side = math.min(c.maxHeight, _artMax);
             return SizedBox(
               width: side,
               height: side,
@@ -1761,7 +1849,7 @@ class _Music extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _hd('now playing on ${(m.source ?? 'your laptop').toLowerCase()}'),
+              KeyedSubtree(key: k.headKey, child: _hd('now playing on ${(m.source ?? 'your laptop').toLowerCase()}')),
               const SizedBox(height: 6),
               Text(m.title ?? 'nothing playing', maxLines: 2, overflow: TextOverflow.ellipsis, style: _bigS(40)),
               const SizedBox(height: 4),
@@ -1801,6 +1889,13 @@ class _Music extends ConsumerWidget {
                   ),
                   const SizedBox(width: 10),
                   _btn('', icon: 'next', width: 52, height: 46, onTap: () => act(context, ref, 'media.next')),
+                  const SizedBox(width: 22),
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: RepaintBoundary(child: CustomPaint(painter: _ScribblePainter(k))),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -1809,6 +1904,247 @@ class _Music extends ConsumerWidget {
       ],
     );
   }
+}
+
+const _artMax = 320.0;
+
+// ------------------------------------------------------------------ music doodles
+
+/// One floating note: [born] in [_SkClock.t] seconds; everything else comes from [id].
+typedef _Float = ({int id, double born});
+
+const _noteLife = 4.4;
+
+/// Stable pseudo-random 0..1 for an integer.
+double _rnd(int i) {
+  var x = (i * 0x27d4eb2d + 0x165667b1) & 0x7fffffff;
+  x = ((x ^ (x >> 15)) * 0x2c1b3c6d) & 0x7fffffff;
+  x = ((x ^ (x >> 12)) * 0x297a2d39) & 0x7fffffff;
+  return (x ^ (x >> 15)) / 0x7fffffff;
+}
+
+/// Smooth value noise, 0..1.
+double _vnoise(double x) {
+  final i = x.floor();
+  final f = x - i;
+  final u = f * f * (3 - 2 * f);
+  return _rnd(i) + (_rnd(i + 1) - _rnd(i)) * u;
+}
+
+/// The music doodles' clock, stepped like hand-drawn animation: about ten drawings a
+/// second (a ticker for one frame, then a short timer), each re-jittering every stroke —
+/// the "boiling line" look, and a tenth of the repaints of a smooth animation. [t] is
+/// seconds, [frame] picks the jitter, [e] eases 0 ↔ 1 with play / pause. Stops once paused
+/// and the last note has floated away; the ticker keeps it paused while off screen.
+class _SkClock extends ChangeNotifier {
+  _SkClock(TickerProvider vsync, bool playing) : _on = playing, e = playing ? 1 : 0 {
+    _tk = vsync.createTicker(_tick);
+    _sw.start();
+    // Opened mid-song: a few notes are already on their way up.
+    if (playing) {
+      for (var i = 1; i <= 4; i++) {
+        notes.add((id: _id++, born: -i * 1.05));
+      }
+      _tk.start();
+    }
+  }
+
+  late final sch.Ticker _tk;
+  final _sw = Stopwatch();
+  Timer? _next;
+  bool _on;
+  double t = 0, e, _at = 0, _wait = 0;
+  int frame = 0, _id = 0;
+  final notes = <_Float>[];
+
+  /// Layout anchors for [_NotesPainter]: its own box and the "now playing" line, so the
+  /// notes keep to the space above the song however many lines the title takes.
+  final stageKey = GlobalKey(), headKey = GlobalKey();
+
+  set playing(bool v) {
+    if (v == _on) return;
+    _on = v;
+    _wait = 0;
+    if (!_tk.isActive && _next == null) _tk.start();
+  }
+
+  void _tick(Duration _) {
+    _tk.stop();
+    final now = _sw.elapsedMicroseconds / 1e6;
+    final dt = (now - _at).clamp(0.0, .25);
+    _at = now;
+    t += dt;
+    frame++;
+    final goal = _on ? 1.0 : 0.0;
+    e += (goal - e) * (1 - math.exp(-dt * 4));
+    if ((goal - e).abs() < .02) e = goal;
+    notes.removeWhere((n) => t - n.born > _noteLife);
+    if (_on && (_wait -= dt) <= 0) {
+      notes.add((id: _id, born: t));
+      _wait = .75 + .7 * _rnd(_id++ * 7 + 3);
+    }
+    notifyListeners();
+    if (_on || e > 0 || notes.isNotEmpty) {
+      _next = Timer(const Duration(milliseconds: 90), () {
+        _next = null;
+        _tk.start();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _next?.cancel();
+    _tk.dispose();
+    super.dispose();
+  }
+}
+
+/// Owns a [_SkClock] for its subtree.
+class _Boil extends StatefulWidget {
+  const _Boil({required this.playing, required this.builder});
+  final bool playing;
+  final Widget Function(BuildContext context, _SkClock k) builder;
+  @override
+  State<_Boil> createState() => _BoilState();
+}
+
+class _BoilState extends State<_Boil> with SingleTickerProviderStateMixin {
+  late final _k = _SkClock(this, widget.playing);
+
+  @override
+  void didUpdateWidget(_Boil old) {
+    super.didUpdateWidget(old);
+    _k.playing = widget.playing;
+  }
+
+  @override
+  void dispose() {
+    _k.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _k);
+}
+
+/// A hand-drawn ♪ (or ♫ when [pair]) with its head at the origin, about 26 px tall: a
+/// filled, wobbly-outlined head, a stem and a flag (or a thick scribbled beam).
+void _drawNote(Canvas c, _Rng r, {required bool pair, required Color fill, required double alpha}) {
+  final ink = _stroke(_ink.withValues(alpha: alpha), 1.5);
+  final heads = pair ? const [Offset.zero, Offset(14, -3)] : const [Offset.zero];
+  for (final h in heads) {
+    c.save();
+    c.translate(h.dx, h.dy);
+    c.rotate(-.38);
+    // The fill sits a little off the outline, like a marker colouring in.
+    c.drawOval(
+      Rect.fromCenter(center: Offset((r() - .5) * 1.6, (r() - .5) * 1.6), width: 12, height: 8.6),
+      Paint()..color = fill.withValues(alpha: alpha),
+    );
+    final o = Path();
+    _rellipse(o, 0, 0, 6, 4.2, r);
+    c.drawPath(o, ink);
+    c.restore();
+  }
+  final s = Path();
+  for (final h in heads) {
+    _rline(s, h.dx + 5.4, h.dy - 1.5, h.dx + 5.4 + (r() - .5) * 1.4, h.dy - 23, r, .6);
+  }
+  if (pair) {
+    for (var k = 0; k < 3; k++) {
+      _rline(s, 5.4, -23 + k * 1.6, 19.4, -26 + k * 1.6, r, .45);
+    }
+  } else {
+    s
+      ..moveTo(5.4, -23)
+      ..quadraticBezierTo(14 + (r() - .5) * 2.4, -19, 12 + (r() - .5) * 2.4, -10);
+  }
+  c.drawPath(s, ink);
+}
+
+/// The notes, in the page's own space (drawn under the polaroid): each slips out from
+/// behind the polaroid's top-right corner, then drifts up and away to the right through
+/// the open space above the song, swaying, and fades.
+class _NotesPainter extends CustomPainter {
+  _NotesPainter(this.k) : super(repaint: k);
+  final _SkClock k;
+
+  static const _fills = [_C.violet, _C.yellow, _C.blue, _C.orange];
+
+  /// Top of the "now playing" line in this painter's space (null before layout).
+  double? _headTop() {
+    final stage = k.stageKey.currentContext?.findRenderObject();
+    final head = k.headKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || head is! RenderBox || !stage.hasSize || !head.attached) return null;
+    return head.localToGlobal(Offset.zero, ancestor: stage).dy;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (k.notes.isEmpty) return;
+    final side = math.min(size.height, _artMax);
+    final top = (size.height - side) / 2;
+    // Note heads stay between just under the top bar and just over the song's first line.
+    const ceil = 18.0;
+    final floor = math.max(ceil + 8, (_headTop() ?? 64) - 9);
+    for (final n in k.notes) {
+      final age = k.t - n.born;
+      final p = (age / _noteLife).clamp(0.0, 1.0);
+      double rr(int salt) => _rnd(n.id * 31 + salt);
+      final scale = 1.05 + .3 * rr(1);
+      final out = Curves.easeOutCubic.transform((p * 4).clamp(0.0, 1.0)); // out from behind
+      final y0 = math.min(floor, top + 36 + 12 * rr(2));
+      final y = y0 - (y0 - ceil - 10 * rr(3)) * Curves.easeOut.transform(p) + 3.5 * math.sin(age * 2.4 + rr(4) * 6);
+      final x = side - 12 + 30 * out + (70 + 230 * rr(5)) * Curves.easeInOut.transform(p);
+      final alpha = math.min((p / .08).clamp(0.0, 1.0), ((1 - p) / .32).clamp(0.0, 1.0));
+      if (alpha <= .01) continue;
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate((rr(6) - .5) * .5 + .14 * math.sin(age * 2.1 + rr(7) * 6));
+      canvas.scale(scale);
+      _drawNote(
+        canvas,
+        _Rng(n.id * 977 + k.frame * 131),
+        pair: rr(8) < .4,
+        fill: _fc(_fills[(rr(9) * _fills.length).floor() % _fills.length]),
+        alpha: alpha,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_NotesPainter o) => o.k != k;
+}
+
+/// A scribbled sound wave next to the buttons: a jagged double stroke whose loudness
+/// wanders like real music; it flattens and fades out on pause.
+class _ScribblePainter extends CustomPainter {
+  _ScribblePainter(this.k) : super(repaint: k);
+  final _SkClock k;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (k.e <= 0 || size.width < 40) return;
+    final w = math.min(size.width, 260.0), mid = size.height / 2;
+    final r = _Rng(4049 + k.frame * 17);
+    final p = Path();
+    for (var pass = 0; pass < 2; pass++) {
+      for (var x = 2.0; x <= w - 2; x += 3) {
+        final taper = math.min(1.0, math.min(x / 30, (w - x) / 30));
+        final loud = .25 + .75 * _vnoise(x / 40 + k.t * 1.6) * (.55 + .45 * _vnoise(k.t * 2.2 + 9));
+        final y = mid +
+            size.height * .4 * k.e * taper * loud * math.sin(x * .27 - k.t * 6 + pass * .5) +
+            (r() - .5) * 1.5;
+        x == 2 ? p.moveTo(x, y) : p.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(p, _stroke(_sc(_C.violet).withValues(alpha: k.e), 1.8));
+  }
+
+  @override
+  bool shouldRepaint(_ScribblePainter o) => o.k != k;
 }
 
 class _SkSeek extends StatefulWidget {

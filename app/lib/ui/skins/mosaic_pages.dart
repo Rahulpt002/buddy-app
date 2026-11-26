@@ -808,6 +808,8 @@ class _Pc extends ConsumerWidget {
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
+    final f = ref.watch(settingsProvider).fahrenheit;
+    final cpuTemp = s.cpu.tempC == null ? '' : '${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}, ';
 
     Widget small(String label, double? pct, String sub) => _tileW(
       p,
@@ -850,7 +852,7 @@ class _Pc extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _sideNote(
-                      '${_cpuName(s.cpu.model)}\n${s.cpu.cores ?? '—'} cores, ${s.cpu.threads ?? s.cpu.cores ?? '—'} threads',
+                      '$cpuTemp${_cpuName(s.cpu.model)}\n${s.cpu.cores ?? '—'} cores, ${s.cpu.threads ?? s.cpu.cores ?? '—'} threads',
                       k,
                     ),
                   ),
@@ -952,13 +954,16 @@ class _Internet extends ConsumerWidget {
     final shownUp = st.running ? (prog?.upBps ?? 0) : (last?.upBps ?? 0);
     final status = !live ? 'Unknown' : (n.online ? 'Online' : 'Offline');
     final statusC = live && n.online ? _pc(PageId.github) : _pc(PageId.timer);
+    // With the Mac's own traffic the right side stacks three rows: status, live, test.
+    final mac = sys != null;
+    final rows = mac ? <double>[1, 1, 1] : <double>[1, 1];
 
-    return _grid([1.15, 1.15, 1, 1], [1, 1], [
+    final cells = [
       _G(
         0,
         0,
         cs: 2,
-        rs: 2,
+        rs: mac ? 3 : 2,
         _tileW(
           k,
           Column(
@@ -1044,9 +1049,10 @@ class _Internet extends ConsumerWidget {
           ),
         ),
       ),
+      if (mac) _G(2, 1, cs: 2, _MacNet(sys, p)),
       _G(
         2,
-        1,
+        mac ? 2 : 1,
         cs: 2,
         _tileW(
           p,
@@ -1059,7 +1065,9 @@ class _Internet extends ConsumerWidget {
                 trailing: _mu(
                   st.running
                       ? 'Testing now'
-                      : (last == null ? 'Never tested' : 'Tested ${ago(now.difference(last.at))}'),
+                      : (last == null
+                            ? 'Never tested'
+                            : 'Tested ${ago(now.difference(last.at))}, ping ${last.pingMs.round()} ms'),
                   p,
                 ),
               ),
@@ -1089,21 +1097,67 @@ class _Internet extends ConsumerWidget {
                   ),
                 ],
               ),
-              if (st.running) ...[
-                const SizedBox(height: 10),
-                _bar((prog?.pct ?? 0) / 100, p),
-              ] else ...[
-                const SizedBox(height: 8),
-                _mu(
-                  '${last == null ? '' : 'Ping ${last.pingMs.round()} ms. '}Right now ${sys == null ? '—' : mbps(sys.downBps)} down, ${sys == null ? '—' : mbps(sys.upBps)} up.',
-                  p,
-                ),
-              ],
+              if (st.running) ...[const SizedBox(height: 10), _bar((prog?.pct ?? 0) / 100, p)],
             ],
           ),
         ),
       ),
-    ]);
+    ];
+    return _grid([1.15, 1.15, 1, 1], rows, cells);
+  }
+}
+
+/// What the Mac is moving right now: down and up as big numbers, the last minute as a
+/// smooth area chart beside them (down in the page colour, up faint white).
+class _MacNet extends StatelessWidget {
+  const _MacNet(this.s, this.k);
+  final SystemData s;
+  final _Ink k;
+
+  @override
+  Widget build(BuildContext context) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    final hi = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024) * 1.1;
+    return _tileW(
+      k,
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _lb('This Mac now', k),
+                const Spacer(),
+                _fit(_big(down, 34, k.fg, unit: '$downU down')),
+                const SizedBox(height: 7),
+                _fit(_big(up, 34, k.fg, unit: '$upU up')),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: s.downHistory.length < 2
+                      ? Center(child: _mu('Collecting…', k))
+                      : _Area([
+                          _Line(s.upHistory, _white.withValues(alpha: .5), width: 2),
+                          _Line(s.downHistory, k.fill, width: 2.5, fill: k.fill.withValues(alpha: .22)),
+                        ], max: hi),
+                ),
+                const SizedBox(height: 4),
+                _mu('Down (solid) and up (faint), last minute', k, size: 11.5),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

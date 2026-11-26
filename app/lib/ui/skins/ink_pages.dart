@@ -1,6 +1,8 @@
 // Concept 4 — Ink pages. Sizes follow deskpanel-concept-4-ink.html (CSS px = logical px).
 // Monochrome: black ink on grey paper; dot / hatch / checker patterns stand in for colour.
-// Nothing animates (no tweens) — e-paper redraws in place.
+// Nothing animates (no tweens) — e-paper redraws in place. The one moving thing, the record
+// on the Music page, turns in coarse steps like an e-ink screen refreshing.
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -1061,6 +1063,8 @@ class _Pc extends ConsumerWidget {
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
+    final f = ref.watch(settingsProvider).fahrenheit;
+    final cpuTemp = s.cpu.tempC == null ? '' : ', ${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
     final rows = [
       (
         'Graphics',
@@ -1100,9 +1104,8 @@ class _Pc extends ConsumerWidget {
                       _n('${s.cpu.pct.round()}', 124, unit: '%', c: _paper),
                       const SizedBox(height: 4),
                       _sub(
-                        s.cpu.cores != null
-                            ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads'
-                            : s.cpu.model,
+                        '${s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : s.cpu.model}'
+                        '$cpuTemp',
                         blk: true,
                       ),
                       const SizedBox(height: 10),
@@ -1278,20 +1281,29 @@ class _Internet extends ConsumerWidget {
           ),
           const SizedBox(height: _gap),
           Expanded(
-            child: _mod(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _mh('Latency, last 2 minutes', trailing: _sub('0 to 50 ms')),
-                  const SizedBox(height: 6),
-                  Expanded(
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      painter: _StepChart(main: n.latencyHistory, hi: 50, fill: _Pat.dots, width: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 150,
+                  child: _mod(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _mh('Latency, last 2 minutes', trailing: _sub('0 to 50 ms')),
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: CustomPaint(
+                            size: Size.infinite,
+                            painter: _StepChart(main: n.latencyHistory, hi: 50, fill: _Pat.dots, width: 2),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                if (sys != null) ...[const SizedBox(width: _gap), Expanded(flex: 100, child: _MacNet(sys))],
+              ],
             ),
           ),
           const SizedBox(height: _gap),
@@ -1309,12 +1321,11 @@ class _Internet extends ConsumerWidget {
                     const SizedBox(width: 22),
                     Expanded(
                       child: _sub(
-                        '${st.running
+                        st.running
                             ? 'Testing now'
                             : last == null
                             ? 'Never tested'
-                            : 'Tested ${ago(now.difference(last.at))}, ping ${last.pingMs.round()} ms'}\n'
-                        'Now ${sys == null ? '—' : mbps(sys.downBps)} down, ${sys == null ? '—' : mbps(sys.upBps)} up',
+                            : 'Tested ${ago(now.difference(last.at))}, ping ${last.pingMs.round()} ms',
                         lines: 2,
                       ),
                     ),
@@ -1336,6 +1347,55 @@ class _Internet extends ConsumerWidget {
                 ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the Mac is moving right now: down / up rates and the last minute as a step chart
+/// (down solid over dots, up dashed), on the same scale.
+class _MacNet extends StatelessWidget {
+  const _MacNet(this.s);
+  final SystemData s;
+
+  @override
+  Widget build(BuildContext context) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    final hi = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024) * 1.12;
+    return _mod(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _mh(
+            'This Mac now',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [_legend('Down'), const SizedBox(width: 8), _legend('Up', dashed: true)],
+            ),
+          ),
+          const SizedBox(height: 7),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [
+                _n(down, 32, unit: '$downU down', fit: false),
+                const SizedBox(width: 16),
+                _n(up, 32, unit: '$upU up', fit: false),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: s.downHistory.length < 2
+                ? Center(child: _sub('Collecting the last minute…'))
+                : CustomPaint(
+                    size: Size.infinite,
+                    painter: _StepChart(main: s.downHistory, dashed: s.upHistory, hi: hi, fill: _Pat.sparse, width: 2),
+                  ),
           ),
         ],
       ),
@@ -2010,45 +2070,66 @@ class _Music extends ConsumerWidget {
                   style: _tx(16, w: FontWeight.w700),
                 ),
               if (m.album != null) _sub(m.album!),
-              const SizedBox(height: 22),
-              Ticker(
-                period: const Duration(seconds: 1),
-                builder: (context, now) {
-                  final pos = m.positionNow(now, skewMs: skew);
-                  final total = m.durationMs ?? 0;
-                  return Column(
-                    children: [
-                      _InkSeek(
-                        value: total == 0 ? 0 : pos / total,
-                        enabled: m.canSeek && total > 0,
-                        onSeek: (f) => act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(mmss(pos), style: _tx(12, w: FontWeight.w700)),
-                          const Spacer(),
-                          Text(total == 0 ? '' : mmss(total), style: _tx(12, w: FontWeight.w700)),
-                        ],
-                      ),
-                    ],
-                  );
-                },
-              ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  _round('prev', () => act(context, ref, 'media.prev')),
-                  const SizedBox(width: 16),
-                  _round(
-                    m.playing ? 'pause' : 'play',
-                    () => act(context, ref, 'media.play_pause'),
-                    inv: true,
-                    size: 62,
+              // Transport on the left, the turntable beside it (as big as the height allows).
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 176),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Ticker(
+                              period: const Duration(seconds: 1),
+                              builder: (context, now) {
+                                final pos = m.positionNow(now, skewMs: skew);
+                                final total = m.durationMs ?? 0;
+                                return Column(
+                                  children: [
+                                    _InkSeek(
+                                      value: total == 0 ? 0 : pos / total,
+                                      enabled: m.canSeek && total > 0,
+                                      onSeek: (f) =>
+                                          act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(mmss(pos), style: _tx(12, w: FontWeight.w700)),
+                                        const Spacer(),
+                                        Text(total == 0 ? '' : mmss(total), style: _tx(12, w: FontWeight.w700)),
+                                      ],
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                _round('prev', () => act(context, ref, 'media.prev')),
+                                const SizedBox(width: 16),
+                                _round(
+                                  m.playing ? 'pause' : 'play',
+                                  () => act(context, ref, 'media.play_pause'),
+                                  inv: true,
+                                  size: 62,
+                                ),
+                                const SizedBox(width: 16),
+                                _round('next', () => act(context, ref, 'media.next')),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      AspectRatio(aspectRatio: 1, child: _Vinyl(playing: m.playing)),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  _round('next', () => act(context, ref, 'media.next')),
-                ],
+                ),
               ),
             ],
           ),
@@ -2056,6 +2137,177 @@ class _Music extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// The record on the deck, in ink line-art: grooves as thin rings, a hatched label with a
+/// solid mark, a tonearm. While music plays it turns in coarse steps (one e-paper refresh
+/// every 0.6 s, the last mark position left as a faint ghost); paused, it stands still
+/// with the arm back on its rest. The timer runs only while playing and on screen.
+class _Vinyl extends StatefulWidget {
+  const _Vinyl({required this.playing});
+  final bool playing;
+  @override
+  State<_Vinyl> createState() => _VinylState();
+}
+
+class _VinylState extends State<_Vinyl> {
+  static const _refresh = Duration(milliseconds: 600);
+  Timer? _timer;
+  int _step = 0;
+  bool _onScreen = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Off while another route covers the page (the same switch that pauses Tickers).
+    _onScreen = TickerMode.valuesOf(context).enabled;
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_Vinyl old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    final run = widget.playing && _onScreen;
+    if (run && _timer == null) {
+      _timer = Timer.periodic(_refresh, (_) => setState(() => _step++));
+    } else if (!run && _timer != null) {
+      _timer!.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(painter: _VinylPainter(_step, widget.playing), size: Size.infinite),
+  );
+}
+
+class _VinylPainter extends CustomPainter {
+  _VinylPainter(this.step, this.playing);
+  final int step;
+  final bool playing;
+
+  /// Degrees per refresh: 9 positions per turn, so each step reads as a clear jump.
+  static const _deg = 40.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Laid out in a 100×100 box, drawn at pixel scale so strokes and patterns stay crisp.
+    final k = math.min(size.width, size.height) / 100;
+    final o = Offset((size.width - 100 * k) / 2, (size.height - 100 * k) / 2);
+    Offset p(double x, double y) => o + Offset(x * k, y * k);
+    final c = p(42, 56);
+    final r = 41 * k;
+    Paint stroke(double w, [Color col = _ink]) => Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w
+      ..color = col;
+
+    // Disc: paper, a firm rim, grooves as thin rings with blank bands between tracks.
+    canvas.drawCircle(c, r, Paint()..color = _paper);
+    final groove = stroke(.7, _ink2);
+    const gaps = [(24.2, 26.0), (31.0, 32.8)];
+    for (var g = 17.6; g < 39.6; g += 1.55) {
+      if (gaps.any((b) => g > b.$1 && g < b.$2)) continue;
+      canvas.drawCircle(c, g * k, groove);
+    }
+    canvas.drawCircle(c, r - 1, stroke(2));
+    canvas.drawCircle(c, 38.6 * k, stroke(1.2));
+
+    // Label (turns with the record): hatched, with a solid mark and the spindle.
+    final lr = 15 * k;
+    final a = step * _deg * math.pi / 180;
+    void mark(Paint paint, double angle) {
+      canvas.save();
+      canvas.translate(c.dx, c.dy);
+      canvas.rotate(angle);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTRB(-2.7 * k, -14 * k, 2.7 * k, -6.2 * k), Radius.circular(1 * k)),
+        paint,
+      );
+      canvas.restore();
+    }
+
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(a);
+    canvas.save();
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: lr)));
+    canvas.drawCircle(Offset.zero, lr, Paint()..color = _paper);
+    _fillRaw(canvas, Rect.fromCircle(center: Offset.zero, radius: lr), _Pat.hatch, _ink);
+    canvas.restore();
+    canvas.restore();
+    // E-ink ghosting: the previous position lingers faintly until the next refresh.
+    if (playing && step > 0) mark(Paint()..color = _ink3, a - _deg * math.pi / 180);
+    mark(Paint()..color = _ink, a);
+    canvas.drawCircle(c, lr, stroke(2));
+    canvas.drawCircle(c, 4.2 * k, Paint()..color = _ink);
+    canvas.drawCircle(c, 1.5 * k, Paint()..color = _paper);
+
+    // Tonearm: pivot top right; on the record while playing, back on its rest when paused.
+    final pv = p(88, 13);
+    // The rest: a small cradle the arm lies across when lifted.
+    canvas.drawPath(
+      Path()
+        ..moveTo(p(84, 60).dx, p(84, 60).dy)
+        ..lineTo(p(84, 63).dx, p(84, 63).dy)
+        ..lineTo(p(92, 63).dx, p(92, 63).dy)
+        ..lineTo(p(92, 60).dx, p(92, 60).dy),
+      stroke(2)
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    final ang = (playing ? 112.0 : 90.0) * math.pi / 180;
+    final dir = Offset(math.cos(ang), math.sin(ang));
+    final len = 60 * k;
+    final tip = pv + dir * len;
+    // Counterweight behind the pivot.
+    canvas.save();
+    canvas.translate(pv.dx - dir.dx * 11 * k, pv.dy - dir.dy * 11 * k);
+    canvas.rotate(ang);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset.zero, width: 7 * k, height: 8 * k),
+        Radius.circular(1.5 * k),
+      ),
+      Paint()..color = _ink,
+    );
+    canvas.restore();
+    // Arm tube, then the headshell set at an angle at its end.
+    canvas.drawLine(
+      pv - dir * 7 * k,
+      tip - dir * 4 * k,
+      Paint()
+        ..color = _ink
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.save();
+    canvas.translate(tip.dx, tip.dy);
+    canvas.rotate(ang + .42);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(-5 * k, -2.6 * k, 9 * k, 5.2 * k), Radius.circular(1 * k)),
+      Paint()..color = _ink,
+    );
+    canvas.restore();
+    // Pivot on top.
+    canvas.drawCircle(pv, 6.5 * k, Paint()..color = _paper);
+    canvas.drawCircle(pv, 6.5 * k, stroke(2));
+    canvas.drawCircle(pv, 2.4 * k, Paint()..color = _ink);
+  }
+
+  @override
+  bool shouldRepaint(_VinylPainter o) => o.step != step || o.playing != playing;
 }
 
 /// Tap / drag the dotted bar to seek; one seek is sent on release.

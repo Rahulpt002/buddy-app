@@ -3,6 +3,7 @@
 // rows of coloured chips. Times are 24-hour by design.
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart' as sched;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -271,6 +272,14 @@ class _Pc extends ConsumerWidget {
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
     final gpuPct = g.available ? g.pct : null;
+    // CPU detail: the temperature (like the GPU row) and as much of the core count as fits.
+    final f = ref.watch(settingsProvider.select((s) => s.fahrenheit));
+    final cores = s.cpu.cores == null ? '' : '${s.cpu.cores}C ${s.cpu.threads ?? s.cpu.cores}T';
+    var cpuDetail = cores;
+    if (s.cpu.tempC != null) {
+      final t = '${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
+      cpuDetail = '$t $cores'.length <= 9 ? '$t $cores' : (s.cpu.cores == null ? t : '$t ${s.cpu.cores}C');
+    }
     return _pg(
       _board([
         _colh(const [('Unit', 5), ('Load', 9), ('Level', 18), ('Detail', 9)]),
@@ -278,7 +287,7 @@ class _Pc extends ConsumerWidget {
           _fl('CPU', 5),
           _fl('${s.cpu.pct.round()}%', 9),
           _chips(s.cpu.pct / 100, 18),
-          _fl(s.cpu.cores == null ? '' : '${s.cpu.cores}C ${s.cpu.threads ?? s.cpu.cores}T', 9),
+          _fl(cpuDetail.trim(), 9),
         ]),
         _rw(1, [
           _fl('GPU', 5),
@@ -325,6 +334,7 @@ class _Internet extends ConsumerWidget {
       );
     }
     final live = ref.watch(agentProvider).live;
+    final sys = topicData<SystemData>(ref, 'system');
     final now = DateTime.now();
     final st = n.speedtest, last = st.last, prog = st.progress;
     final status = !live ? 'Unknown' : (n.online ? 'Online' : 'Offline');
@@ -361,9 +371,13 @@ class _Internet extends ConsumerWidget {
           _fl(dropped == null ? 'Never' : dropped.replaceFirst(' ago', ''), 10),
           _fl(dropped == null || !dropped.endsWith(' ago') ? '' : 'ago', 18),
         ]),
-        _rw(4, [_fl('Today', 8), _fl(bytes(n.usageToday), 10), _fl('', 18)]),
-        _rw(5, [_fl('Month', 8), _fl(bytes(n.usageMonth, digits: 0), 10), _fl('', 18)]),
-        _rw(6, [
+        _rw(4, [_fl('Today', 8), _fl(bytes(n.usageToday), 10), _fl('Month ${bytes(n.usageMonth, digits: 0)}', 18)]),
+        // What this Mac is moving right now, with its last 18 seconds as chip bars.
+        if (sys != null) ...[
+          _rw(5, [_fl('Mac down', 8), _fl(_rateTxt(sys.downBps), 10), _SparkChips(_last18(sys.downHistory))]),
+          _rw(6, [_fl('Mac up', 8), _fl(_rateTxt(sys.upBps), 10), _SparkChips(_last18(sys.upHistory))]),
+        ],
+        _rw(7, [
           _fl('Speed', 8),
           _fl(speed, 10),
           _fl(st.running ? 'Testing' : (last == null ? 'Never' : ago(now.difference(last.at))), 13),
@@ -374,10 +388,67 @@ class _Internet extends ConsumerWidget {
                 : () => act(context, ref, 'speedtest.run', const {}, null, null, const Duration(seconds: 90)),
           ),
         ]),
-        if (st.running) _rw(7, [_fl('', 8), _fl('', 10), _chips((prog?.pct ?? 0) / 100, 18, color: _y)]),
-      ]),
+        if (st.running) _rw(8, [_fl('', 8), _fl('', 10), _chips((prog?.pct ?? 0) / 100, 18, color: _y)]),
+        // Nine rows while a test runs: close up the board so the last one still fits.
+      ], gap: st.running && sys != null ? 4 : 6),
     );
   }
+}
+
+String _rateTxt(double bps) {
+  final (v, u) = rate(bps);
+  return '$v $u';
+}
+
+List<double> _last18(List<double> h) => h.length > 18 ? h.sublist(h.length - 18) : h;
+
+/// 18 chips as a bar chart of the last 18 seconds (newest on the right): each chip lights
+/// from the bottom in quarter steps of the row's own peak.
+class _SparkChips extends StatelessWidget {
+  const _SparkChips(this.vals);
+  final List<double> vals;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 18 * 17 + 17 * _ChipRow.gap,
+    height: 26,
+    child: CustomPaint(painter: _SparkPainter(vals)),
+  );
+}
+
+class _SparkPainter extends CustomPainter {
+  _SparkPainter(this.vals);
+  final List<double> vals;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const n = 18, w = 17.0, h = 26.0, r = Radius.circular(3);
+    final hi = maxOf(vals, floor: 64 * 1024);
+    final off = Paint()..color = _off;
+    final lit = Paint()..color = _b;
+    for (var i = 0; i < n; i++) {
+      final x = i * (w + _ChipRow.gap);
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, 0, w, h), r), off);
+      final k = i - (n - vals.length); // right-aligned: newest last
+      if (k < 0) continue;
+      final q = vals[k] <= 0 ? 0 : (vals[k] / hi * 4).ceil().clamp(1, 4);
+      if (q == 0) continue;
+      final fh = h * q / 4;
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          Rect.fromLTWH(x, h - fh, w, fh),
+          topLeft: q == 4 ? r : Radius.zero,
+          topRight: q == 4 ? r : Radius.zero,
+          bottomLeft: r,
+          bottomRight: r,
+        ),
+        lit,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter o) => o.vals != vals;
 }
 
 // ------------------------------------------------------------------ Claude
@@ -595,36 +666,56 @@ class _Music extends ConsumerWidget {
     final m = topicData<MediaData>(ref, 'media')!;
     final skew = ref.read(agentProvider.notifier).clockSkewMs;
     final title = m.title ?? 'Nothing playing';
+    // The four text rows, with the flap equaliser standing beside them on the same grid.
+    final rows = _board([
+      _rw(0, [_fl(title, 20)]),
+      _rw(1, [_fl(m.artist ?? '', 20, c: _y)]),
+      _rw(2, [_fl(m.album ?? '', 20)]),
+      Ticker(
+        period: const Duration(seconds: 1),
+        builder: (context, now) {
+          final pos = m.positionNow(now, skewMs: skew);
+          final total = m.durationMs ?? 0;
+          final tt = total == 0 ? mmss(pos) : '${mmss(pos)}/${mmss(total)}';
+          return _rw(3, [
+            _fl(tt, math.max(9, tt.length)),
+            _fl(m.title == null ? 'Idle' : (m.playing ? 'Playing' : 'Paused'), 10, c: m.playing ? _g : _y),
+          ]);
+        },
+      ),
+    ]);
     final board = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         _board([
-          _colh([('Now playing on ${m.source ?? 'laptop'}', 20)]),
-          _rw(0, [_fl(title, 20)]),
-          _rw(1, [_fl(m.artist ?? '', 20, c: _y)]),
-          _rw(2, [_fl(m.album ?? '', 20)]),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _colh([('Now playing on ${m.source ?? 'laptop'}', 20)]),
+              const SizedBox(width: _FlapEq.gapLeft),
+              SizedBox(width: _FlapEq.width, child: _lbl('Level')),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              rows,
+              const SizedBox(width: _FlapEq.gapLeft),
+              _FlapEq(playing: m.playing, seed: stableHash(title)),
+            ],
+          ),
           Ticker(
             period: const Duration(seconds: 1),
             builder: (context, now) {
               final pos = m.positionNow(now, skewMs: skew);
               final total = m.durationMs ?? 0;
-              final tt = total == 0 ? mmss(pos) : '${mmss(pos)}/${mmss(total)}';
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _rw(3, [
-                    _fl(tt, math.max(9, tt.length)),
-                    _fl(m.title == null ? 'Idle' : (m.playing ? 'Playing' : 'Paused'), 10, c: m.playing ? _g : _y),
-                  ]),
-                  const SizedBox(height: 6),
-                  _SeekChips(
-                    value: total == 0 ? 0 : pos / total,
-                    enabled: m.canSeek && total > 0,
-                    onSeek: (f) => act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
-                  ),
-                ],
+              return _SeekChips(
+                value: total == 0 ? 0 : pos / total,
+                enabled: m.canSeek && total > 0,
+                onSeek: (f) => act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
               );
             },
           ),
@@ -660,6 +751,218 @@ class _Music extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// An equaliser built from split flaps: [cols] columns of [rows] medium flaps on the
+/// board's row grid, lit from the bottom in the heat colours. Every 0.25–0.5 s (bass
+/// columns slower, staggered per column) a column re-reads its level from smoothed
+/// pseudo-random "music" (a kick in the bass, snare in the mids, hats up top; bass reaches
+/// higher) and the flaps in between flip to it one after another, like the board's text.
+/// Paused, the columns flip back to empty one by one and the ticker stops.
+///
+/// All cells are one painter (one layer, repainted only while a flap is turning), not
+/// forty flap widgets.
+class _FlapEq extends StatefulWidget {
+  const _FlapEq({required this.playing, required this.seed});
+  final bool playing;
+  final int seed;
+
+  static const cols = 10, rows = 4, colGap = 6.0, rowGap = 6.0, gapLeft = 16.0;
+  static const width = cols * 17.0 + (cols - 1) * colGap;
+  static const height = rows * 26.0 + (rows - 1) * rowGap;
+
+  @override
+  State<_FlapEq> createState() => _FlapEqState();
+}
+
+class _FlapEqState extends State<_FlapEq> with SingleTickerProviderStateMixin {
+  static const _cols = _FlapEq.cols, _rows = _FlapEq.rows;
+
+  /// Flip length and the delay between neighbouring flaps of one column (s).
+  static const flip = .28, _stagger = .035;
+
+  late final sched.Ticker _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  late final _rng = math.Random(widget.seed);
+  late final double _bpm = 92.0 + widget.seed % 44;
+  late final _phase = List<double>.generate(_cols, (_) => _rng.nextDouble() * 2 * math.pi);
+  final _level = List<int>.filled(_cols, 0);
+  final _next = List<double>.generate(_cols, (c) => c * .045); // staggered first reads
+
+  /// Per cell (column-major, row 0 at the bottom): lit after its flip, lit before it, and
+  /// when the flip starts (s).
+  final lit = List<bool>.filled(_cols * _rows, false), was = List<bool>.filled(_cols * _rows, false);
+  final flipAt = List<double>.filled(_cols * _rows, -10);
+  double t = 0;
+  Duration _last = Duration.zero, _painted = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playing) _start();
+  }
+
+  @override
+  void didUpdateWidget(_FlapEq old) {
+    super.didUpdateWidget(old);
+    if (widget.playing || _level.any((l) => l > 0)) _start();
+  }
+
+  void _start() {
+    if (_ticker.isActive) return;
+    _last = _painted = Duration.zero;
+    _ticker.start();
+  }
+
+  bool _turning(int i) => t - flipAt[i] < flip;
+
+  /// 0…[_rows]: how many flaps column [c] lights now.
+  int _read(int c) {
+    if (!widget.playing) return 0;
+    final f = c / (_cols - 1); // 0 = bass … 1 = treble
+    final beat = t * _bpm / 60;
+    final kick = math.exp(-(beat % 1) * 4);
+    final snare = math.exp(-((beat / 2 + .5) % 1) * 7);
+    final hat = math.exp(-((beat * 2) % 1) * 8);
+    final swell = .5 + .5 * math.sin(t * (.35 + .5 * f) + _phase[c]);
+    final raw = .05 +
+        (.95 - .35 * f) * (.45 * swell + .5 * _rng.nextDouble()) +
+        .38 * kick * (1 - f / .3).clamp(0.0, 1.0) +
+        .22 * snare * math.exp(-math.pow((f - .5) / .2, 2)) +
+        .2 * hat * ((f - .6) / .4).clamp(0.0, 1.0);
+    return (raw.clamp(0.0, 1.0) * _rows).round();
+  }
+
+  void _tick(Duration e) {
+    t += ((e - _last).inMicroseconds / 1e6).clamp(0.0, .1);
+    _last = e;
+    var changed = false;
+    for (var c = 0; c < _cols; c++) {
+      if (t < _next[c]) continue;
+      final base = c * _rows;
+      // Let a column finish turning before it moves again.
+      var busy = false;
+      for (var r = 0; r < _rows && !busy; r++) {
+        busy = _turning(base + r);
+      }
+      if (busy) {
+        _next[c] = t + .03;
+        continue;
+      }
+      final f = c / (_cols - 1);
+      _next[c] = t + (.46 - .18 * f) + _rng.nextDouble() * .06;
+      final to = _read(c), from = _level[c];
+      if (to == from) continue;
+      // Rising flaps turn bottom-up, falling ones top-down.
+      final order = to > from ? [for (var r = from; r < to; r++) r] : [for (var r = from - 1; r >= to; r--) r];
+      for (final (k, r) in order.indexed) {
+        final i = base + r;
+        was[i] = lit[i];
+        lit[i] = to > from;
+        flipAt[i] = t + k * _stagger;
+      }
+      _level[c] = to;
+      changed = true;
+    }
+    var turning = false;
+    for (var i = 0; i < lit.length && !turning; i++) {
+      turning = _turning(i);
+    }
+    if (changed || (turning && e - _painted >= const Duration(milliseconds: 15))) {
+      _painted = e;
+      _frame.value++;
+    }
+    if (!widget.playing && !turning && _level.every((l) => l == 0)) {
+      _frame.value++;
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(painter: _FlapEqPainter(this), size: const Size(_FlapEq.width, _FlapEq.height)),
+  );
+}
+
+class _FlapEqPainter extends CustomPainter {
+  _FlapEqPainter(this.s) : super(repaint: s._frame);
+  final _FlapEqState s;
+
+  static const _w = 17.0, _h = 26.0, _r = Radius.circular(3);
+  static final _shadow = Paint()..color = const Color(0x99000000);
+  static final _hi = Paint()..color = const Color(0x12FFFFFF);
+  static final _mid = Paint()..color = const Color(0xB3000000);
+
+  /// Heat by height: green, green, yellow, red from the bottom.
+  static Color _tone(int r) => _heat((r + .5) / _FlapEq.rows);
+
+  void _face(Canvas c, Rect rc, Color? on) {
+    final top = on ?? DeparturesSkin.flapT;
+    final bottom = on == null ? DeparturesSkin.flapB : Color.lerp(on, const Color(0xFF000000), .12)!;
+    c.drawRRect(RRect.fromRectAndRadius(rc, _r), Paint()..color = top);
+    c.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromLTRB(rc.left, rc.center.dy, rc.right, rc.bottom),
+        bottomLeft: _r,
+        bottomRight: _r,
+      ),
+      Paint()..color = bottom,
+    );
+    c.drawRect(Rect.fromLTWH(rc.left + 1, rc.top, rc.width - 2, 1), _hi);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const rows = _FlapEq.rows;
+    for (var col = 0; col < _FlapEq.cols; col++) {
+      for (var r = 0; r < rows; r++) {
+        final i = col * rows + r;
+        final rc = Rect.fromLTWH(col * (_w + _FlapEq.colGap), (rows - 1 - r) * (_h + _FlapEq.rowGap), _w, _h);
+        canvas.drawRRect(RRect.fromRectAndRadius(rc.shift(const Offset(0, 1)), _r), _shadow);
+        final dt = s.t - s.flipAt[i];
+        final tone = _tone(r);
+        if (dt < 0 || dt >= _FlapEqState.flip) {
+          // At rest (or waiting for its turn in the cascade).
+          _face(canvas, rc, (dt < 0 ? s.was[i] : s.lit[i]) ? tone : null);
+        } else {
+          // Mid-flip: the old face folds away, the new one unfolds (a vertical squash,
+          // like the board's flaps), darkening as it turns edge-on.
+          final p = dt / _FlapEqState.flip;
+          final double ang, dim;
+          final bool on;
+          if (p < .48) {
+            final q = Curves.easeInOut.transform(p / .48);
+            ang = 88 * q;
+            dim = .4 * q;
+            on = s.was[i];
+          } else {
+            final q = p < .52 ? 0.0 : Curves.easeInOut.transform((p - .52) / .48);
+            ang = 88 * (1 - q);
+            dim = .4 * (1 - q);
+            on = s.lit[i];
+          }
+          canvas.save();
+          canvas.translate(0, rc.center.dy);
+          canvas.scale(1, math.max(.02, math.cos(ang * math.pi / 180)));
+          canvas.translate(0, -rc.center.dy);
+          _face(canvas, rc, on ? tone : null);
+          canvas.drawRRect(RRect.fromRectAndRadius(rc, _r), Paint()..color = Color.fromRGBO(0, 0, 0, dim));
+          canvas.restore();
+        }
+        canvas.drawRect(Rect.fromLTWH(rc.left, rc.center.dy - .5, rc.width, 1), _mid);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FlapEqPainter o) => false;
 }
 
 /// Seek bar as a row of 20 wide chips; tap or drag to seek.

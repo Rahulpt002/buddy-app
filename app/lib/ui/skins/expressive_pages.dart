@@ -2,6 +2,7 @@
 // deskpanel-concept-11-expressive.html (CSS px = logical px).
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart' as sch;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -754,7 +755,9 @@ class _Pc extends ConsumerWidget {
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
-    Widget gauge(double? pct, String label, String sub, Color c) => Expanded(
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuT = s.cpu.tempC;
+    Widget gauge(double? pct, String label, String sub, Color c, {String? sub2}) => Expanded(
       child: _card(
         Row(
           children: [
@@ -775,6 +778,7 @@ class _Pc extends ConsumerWidget {
                     child: Text(label, style: xttl()),
                   ),
                   _ell(sub, _onv),
+                  if (sub2 != null) _ell(sub2, _onv),
                 ],
               ),
             ),
@@ -787,7 +791,13 @@ class _Pc extends ConsumerWidget {
       children: [
         Row(
           children: [
-            gauge(s.cpu.pct, 'Processor', s.cpu.cores != null ? '${s.cpu.cores} cores' : 'CPU', XC.pri),
+            gauge(
+              s.cpu.pct,
+              'Processor',
+              s.cpu.cores != null ? '${s.cpu.cores} cores' : 'CPU',
+              XC.pri,
+              sub2: cpuT == null ? null : '${temp(cpuT, f)}°${f ? 'F' : 'C'}',
+            ),
             const SizedBox(width: _gap),
             gauge(
               g.available ? g.pct : null,
@@ -940,6 +950,7 @@ class _Net extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final n = topicData<NetworkData>(ref, 'network');
+    final sys = topicData<SystemData>(ref, 'system');
     final live = ref.watch(agentProvider).live;
     if (n == null) return _card(Center(child: Text('Waiting for network data…', style: _onv)));
     final now = DateTime.now();
@@ -1061,19 +1072,28 @@ class _Net extends ConsumerWidget {
             ),
             const SizedBox(height: _gap),
             Expanded(
-              child: _card(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Latency, last 2 minutes', style: xttl()),
-                    Expanded(
-                      child: CustomPaint(
-                        painter: _Area([LineSeriesX(n.latencyHistory, XC.pri, 3, fill: true)], 50, .6),
-                        size: Size.infinite,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (sys != null) ...[Expanded(flex: 11, child: _traffic(sys)), const SizedBox(width: _gap)],
+                  Expanded(
+                    flex: 20,
+                    child: _card(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text('Latency, last 2 minutes', style: xttl()),
+                          Expanded(
+                            child: CustomPaint(
+                              painter: _Area([LineSeriesX(n.latencyHistory, XC.pri, 3, fill: true)], 50, .6),
+                              size: Size.infinite,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1090,6 +1110,48 @@ class _Net extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// What the laptop is moving right now: down and up, and the last minute of both.
+  Widget _traffic(SystemData s) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    final peak = [...s.downHistory, ...s.upHistory, s.downBps, s.upBps].fold(64 * 1024.0, math.max);
+    Widget now(String icon, Color c, String v, String u) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [DpIcon(icon, size: 16, color: c, stroke: 2.2), const SizedBox(width: 3), _disp(v, u, 30)],
+    );
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _ell('Laptop traffic', xttl())),
+              Text('now', style: xlab()),
+            ],
+          ),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [now('down', XC.pri, down, downU), const SizedBox(width: 14), now('up', XC.ter, up, upU)],
+            ),
+          ),
+          Expanded(
+            child: CustomPaint(
+              painter: _Area(
+                [LineSeriesX(s.upHistory, XC.ter, 2.5), LineSeriesX(s.downHistory, XC.pri, 3, fill: true)],
+                peak * 1.1,
+                .6,
+              ),
+              size: Size.infinite,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1668,8 +1730,8 @@ class _Music extends ConsumerWidget {
             return SizedBox(
               width: side,
               height: side,
-              child: XShapeClip(
-                shape: XShape.cookie9,
+              child: _MorphArt(
+                playing: m.playing,
                 child: AlbumArt(title: title ?? 'Nothing playing', b64: art?.artId == m.artId ? art?.b64 : null),
               ),
             );
@@ -1743,6 +1805,9 @@ class _Music extends ConsumerWidget {
   }
 }
 
+/// The seek bar as Android's media squiggle: the played part is a wave that travels while
+/// music plays and eases flat when paused (or while dragging), a flat track after it and a
+/// vertical handle at the playhead.
 class _SeekWave extends StatefulWidget {
   const _SeekWave({required this.value, required this.moving, required this.onSeek, required this.enabled});
   final double value;
@@ -1752,8 +1817,27 @@ class _SeekWave extends StatefulWidget {
   State<_SeekWave> createState() => _SeekWaveState();
 }
 
-class _SeekWaveState extends State<_SeekWave> {
+class _SeekWaveState extends State<_SeekWave> with SingleTickerProviderStateMixin {
   double? _drag;
+  late final _g = _Groove(this, widget.moving);
+
+  @override
+  void didUpdateWidget(_SeekWave old) {
+    super.didUpdateWidget(old);
+    _g.playing = widget.moving && _drag == null;
+  }
+
+  @override
+  void dispose() {
+    _g.dispose();
+    super.dispose();
+  }
+
+  void _set(double? v) {
+    setState(() => _drag = v);
+    _g.playing = widget.moving && v == null;
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
@@ -1761,21 +1845,237 @@ class _SeekWaveState extends State<_SeekWave> {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapUp: widget.enabled ? (d) => widget.onSeek(f(d.localPosition)) : null,
-        onHorizontalDragStart: widget.enabled ? (d) => setState(() => _drag = f(d.localPosition)) : null,
-        onHorizontalDragUpdate: widget.enabled ? (d) => setState(() => _drag = f(d.localPosition)) : null,
+        onHorizontalDragStart: widget.enabled ? (d) => _set(f(d.localPosition)) : null,
+        onHorizontalDragUpdate: widget.enabled ? (d) => _set(f(d.localPosition)) : null,
         onHorizontalDragEnd: widget.enabled
             ? (_) {
                 widget.onSeek(_drag!);
-                setState(() => _drag = null);
+                _set(null);
               }
             : null,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: _Wave(_drag ?? widget.value, moving: widget.moving && _drag == null, height: 16),
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(end: (_drag ?? widget.value).clamp(0.0, 1.0)),
+            duration: Duration(milliseconds: _drag == null ? 500 : 0),
+            builder: (context, v, _) => SizedBox(
+              height: 24,
+              width: double.infinity,
+              child: RepaintBoundary(child: CustomPaint(painter: _SquigglePainter(v, _g))),
+            ),
+          ),
         ),
       );
     },
   );
+}
+
+class _SquigglePainter extends CustomPainter {
+  _SquigglePainter(this.p, this.g) : super(repaint: g);
+  final double p;
+  final _Groove g;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final w = s.width, mid = s.height / 2;
+    const l = 24.0; // wavelength
+    final x1 = (w - 4) * (p.isNaN ? 0 : p) + 2; // playhead
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    // Amplitude breathes a little with a pseudo-random "loudness"; flat when settled.
+    final a = 3.6 * g.e * (.78 + .32 * _noise(g.t * 1.4));
+    final end = x1 - 7;
+    if (end > 2) {
+      final ph = g.t * 1.6 * l; // travels ~1.6 wavelengths a second
+      final path = Path()..moveTo(2, mid);
+      for (var x = 2.0; x <= end; x += 2) {
+        // Taper into the start and into the handle, like the Android squiggle.
+        final taper = math.min(1.0, math.min((x - 2) / 10, (end - x) / 10));
+        path.lineTo(x, mid + a * taper * math.sin((x - ph) / l * 2 * math.pi));
+      }
+      path.lineTo(end, mid);
+      c.drawPath(path, stroke..color = XC.pri);
+    }
+    final off0 = x1 + 7;
+    if (off0 < w - 8) c.drawLine(Offset(off0, mid), Offset(w - 8, mid), stroke..color = XC.secc);
+    c.drawCircle(Offset(w - 2, mid), 2, Paint()..color = XC.pri);
+    // The handle: a short vertical pill at the playhead.
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x1, mid), width: 4, height: 22), const Radius.circular(2)),
+      Paint()..color = XC.pri,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SquigglePainter o) => o.p != p || o.g != g;
+}
+
+// ------------------------------------------------------------------ music motion
+
+/// The Music page's motion clock. [t] (seconds) runs only while music plays and slows to a
+/// stop on pause; [e] eases 0 → 1 on play and back to 0 on pause, so nothing jumps. The
+/// ticker stops once paused and settled, and (like any ticker) pauses off screen.
+class _Groove extends ChangeNotifier {
+  _Groove(TickerProvider vsync, bool playing) : _on = playing, e = playing ? 1 : 0 {
+    _tk = vsync.createTicker(_tick);
+    if (playing) _tk.start();
+  }
+
+  late final sch.Ticker _tk;
+  bool _on;
+  double t = 0, e;
+  Duration _last = Duration.zero;
+
+  set playing(bool v) {
+    if (v == _on) return;
+    _on = v;
+    if (!_tk.isActive) {
+      _last = Duration.zero;
+      _tk.start();
+    }
+  }
+
+  void _tick(Duration now) {
+    final dt = ((now - _last).inMicroseconds / 1e6).clamp(0.0, .1);
+    _last = now;
+    final goal = _on ? 1.0 : 0.0;
+    e += (goal - e) * (1 - math.exp(-dt * 3));
+    if ((goal - e).abs() < .003) e = goal;
+    t += dt * e;
+    notifyListeners();
+    if (!_on && e == 0) _tk.stop();
+  }
+
+  @override
+  void dispose() {
+    _tk.dispose();
+    super.dispose();
+  }
+}
+
+/// Stable pseudo-random 0..1 for an integer.
+double _rand(int i) {
+  var x = (i * 0x27d4eb2d + 0x165667b1) & 0x7fffffff;
+  x = ((x ^ (x >> 15)) * 0x2c1b3c6d) & 0x7fffffff;
+  x = ((x ^ (x >> 12)) * 0x297a2d39) & 0x7fffffff;
+  return (x ^ (x >> 15)) / 0x7fffffff;
+}
+
+/// Smooth value noise, 0..1.
+double _noise(double x) {
+  final i = x.floor();
+  final f = x - i;
+  final u = f * f * (3 - 2 * f);
+  return _rand(i) + (_rand(i + 1) - _rand(i)) * u;
+}
+
+/// A polar blend of shape-library outlines, r(θ) = 1 + Σ wᵢ·aᵢ·cos(nᵢ(θ − [rot])), sized like
+/// [XShape.path] (never larger than the box) and scaled by [k].
+Path _blendPath(Size s, List<(XShape, double)> mix, double rot, {double k = 1}) {
+  final c = s.center(Offset.zero);
+  final amp = mix.fold(0.0, (a, m) => a + m.$1.a * m.$2);
+  final r0 = math.min(s.width, s.height) / 2 / (1 + amp) * k;
+  final p = Path();
+  const n = 180;
+  for (var i = 0; i <= n; i++) {
+    final th = i / n * 2 * math.pi;
+    var r = 1.0;
+    for (final (sh, w) in mix) {
+      if (w > 0) r += w * sh.a * math.cos(sh.n * (th - rot));
+    }
+    final o = c + Offset(r0 * r * math.cos(th - math.pi / 2), r0 * r * math.sin(th - math.pi / 2));
+    i == 0 ? p.moveTo(o.dx, o.dy) : p.lineTo(o.dx, o.dy);
+  }
+  return p..close();
+}
+
+/// Where a shape sequence is at time [t]: hold each shape, then morph to the next (every
+/// [step] seconds), blended back towards [rest] as the music's energy [e] fades.
+List<(XShape, double)> _morphMix(List<XShape> seq, XShape rest, double t, double e, double step) {
+  final x = t / step;
+  final i = x.floor();
+  final f = ((x - i - .45) / .55).clamp(0.0, 1.0);
+  final m = f * f * (3 - 2 * f);
+  return [(rest, 1 - e), (seq[i % seq.length], (1 - m) * e), (seq[(i + 1) % seq.length], m * e)];
+}
+
+/// The cover on a tonal shape. While music plays both outlines turn slowly (the shape one
+/// way, the cover's edge the other) and morph through the shape library, and the shape
+/// breathes a little; on pause they ease back to a cookie and hold still.
+class _MorphArt extends StatefulWidget {
+  const _MorphArt({required this.playing, required this.child});
+  final bool playing;
+  final Widget child;
+  @override
+  State<_MorphArt> createState() => _MorphArtState();
+}
+
+class _MorphArtState extends State<_MorphArt> with SingleTickerProviderStateMixin {
+  late final _g = _Groove(this, widget.playing);
+
+  @override
+  void didUpdateWidget(_MorphArt old) {
+    super.didUpdateWidget(old);
+    _g.playing = widget.playing;
+  }
+
+  @override
+  void dispose() {
+    _g.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(painter: _MorphBackPainter(_g)),
+        Center(
+          child: FractionallySizedBox(
+            widthFactor: .8,
+            heightFactor: .8,
+            child: ClipPath(
+              clipper: _MorphClipper(_g),
+              child: RepaintBoundary(child: widget.child),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+const _backSeq = [XShape.cookie12, XShape.flower, XShape.sunny, XShape.clover];
+const _artSeq = [XShape.cookie9, XShape.cookie12, XShape.sunny];
+
+class _MorphBackPainter extends CustomPainter {
+  _MorphBackPainter(this.g) : super(repaint: g);
+  final _Groove g;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final mix = _morphMix(_backSeq, XShape.cookie12, g.t, g.e, 3.4);
+    final k = .955 + .045 * g.e * _noise(g.t * .9);
+    c.drawPath(_blendPath(s, mix, g.t * .22, k: k), Paint()..color = XC.pric);
+  }
+
+  @override
+  bool shouldRepaint(_MorphBackPainter o) => o.g != g;
+}
+
+class _MorphClipper extends CustomClipper<Path> {
+  _MorphClipper(this.g) : super(reclip: g);
+  final _Groove g;
+
+  @override
+  Path getClip(Size s) => _blendPath(s, _morphMix(_artSeq, XShape.cookie9, g.t + 1.7, g.e, 4.1), -g.t * .11);
+
+  @override
+  bool shouldReclip(_MorphClipper o) => o.g != g;
 }
 
 // ------------------------------------------------------------------ Hotspot

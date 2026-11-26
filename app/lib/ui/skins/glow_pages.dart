@@ -1,6 +1,8 @@
 // Concept 2 — Glow: one large serif number per page, no boxes, the glow hue carries
 // meaning. Port of screens sample/deskpanel-concept-2-glow.html (sizes in CSS px).
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
@@ -154,34 +156,6 @@ Widget _dot(Color c, {double size = 9}) => Container(
     boxShadow: [BoxShadow(color: c, blurRadius: 10)],
   ),
 );
-
-/// Art with a blurred, saturated copy glowing behind it (`.cover .blur`).
-Widget _glowArt(Widget art, {double radius = 18, double inset = .08, double sigma = 17, double opacity = .9}) =>
-    LayoutBuilder(
-      builder: (context, c) {
-        final dx = c.maxWidth * inset, dy = c.maxHeight * inset;
-        return Stack(
-          clipBehavior: Clip.none,
-          fit: StackFit.expand,
-          children: [
-            Positioned(
-              left: dx,
-              right: dx,
-              top: dy,
-              bottom: dy,
-              child: Opacity(
-                opacity: opacity,
-                child: ImageFiltered(
-                  imageFilter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.decal),
-                  child: art,
-                ),
-              ),
-            ),
-            ClipRRect(borderRadius: BorderRadius.circular(radius), child: art),
-          ],
-        );
-      },
-    );
 
 String _digits(Duration d) {
   final s = d.inSeconds;
@@ -419,6 +393,8 @@ class _Laptop extends ConsumerWidget {
         : null;
     final down = rate(s.downBps), up = rate(s.upBps);
     final vLabel = g.vramLabel == 'VRAM' ? 'Video memory' : 'GPU memory';
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuTemp = s.cpu.tempC == null ? '' : ' · ${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
 
     Widget metric(String label, double? pct, Color c, String sub) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,7 +434,7 @@ class _Laptop extends ConsumerWidget {
                 'Processor',
                 s.cpu.pct,
                 cpuC,
-                s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : s.cpu.model,
+                '${s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : s.cpu.model}$cpuTemp',
               ),
               metric(
                 'Graphics',
@@ -641,25 +617,84 @@ class _Internet extends ConsumerWidget {
             ),
             const SizedBox(height: 14),
             Expanded(
-              child: LineChart(
-                min: 0,
-                max: 50,
-                pad: 6,
-                series: [LineSeries(n.latencyHistory, _hsl(178, 80, 66), width: 1.6, glow: true)],
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Under the first two columns: latency. Under "Speed test": what the laptop
+                  // is moving right now.
+                  Expanded(
+                    flex: 215,
+                    child: Padding(
+                      padding: EdgeInsets.only(right: sys == null ? 0 : 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: LineChart(
+                              min: 0,
+                              max: 50,
+                              pad: 6,
+                              series: [LineSeries(n.latencyHistory, _hsl(178, 80, 66), width: 1.6, glow: true)],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text('Latency over the last 2 minutes', style: _fa(12)),
+                          const SizedBox(height: 4),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (sys != null) Expanded(flex: 100, child: _ruled(_live(sys), pad: 24)),
+                ],
               ),
             ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(child: Text('Latency over the last 2 minutes', style: _fa(12))),
-                if (sys != null)
-                  Text('Right now ${mbps(sys.downBps)} down, ${mbps(sys.upBps)} up (Mbps)', style: _fa(12)),
-              ],
-            ),
-            const SizedBox(height: 4),
           ],
         );
       },
+    );
+  }
+
+  /// The laptop's traffic now (big serif numbers) and over the last minute.
+  Widget _live(SystemData s) {
+    final downC = _hsl(205, 95, 72), upC = _hsl(262, 90, 78);
+    Widget now(double bps, String dir, Color c) {
+      final (v, u) = rate(bps);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(v, style: _serif(32)),
+          const SizedBox(width: 4),
+          Text('$u $dir', style: _t.t(13, w: FontWeight.w600, c: c)),
+        ],
+      );
+    }
+
+    final top = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(children: [now(s.downBps, 'down', downC), const SizedBox(width: 16), now(s.upBps, 'up', upC)]),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: LineChart(
+            min: 0,
+            max: top * 1.15,
+            pad: 4,
+            series: [
+              LineSeries(s.upHistory, upC, width: 1.4, glow: true),
+              LineSeries(s.downHistory, downC, width: 1.6, glow: true),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text('This laptop, last minute', maxLines: 1, overflow: TextOverflow.ellipsis, style: _fa(12)),
+        const SizedBox(height: 4),
+      ],
     );
   }
 }
@@ -1253,14 +1288,13 @@ class _Music extends ConsumerWidget {
     }
     final title = m.title!;
     final b64 = art != null && art.artId == m.artId ? art.b64 : null;
-    final cover = AlbumArt(title: title, b64: b64);
 
     return LayoutBuilder(
       builder: (context, c) {
         final side = math.min(c.maxHeight * .96, 300.0);
         return Row(
           children: [
-            SizedBox(width: side, height: side, child: _glowArt(cover)),
+            SizedBox(width: side, height: side, child: _CoverGlow(title: title, b64: b64, still: m.playing)),
             const SizedBox(width: 36),
             Expanded(
               child: Column(
@@ -1377,10 +1411,164 @@ class _SeekState extends State<_Seek> {
                 setState(() => _drag = null);
               }
             : null,
-        child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: _line(_drag ?? widget.value, _tx)),
+        child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: _SoftLine(_drag ?? widget.value, _tx)),
       );
     },
   );
+}
+
+/// The Music cover with a blurred, saturated copy glowing behind it (`.cover .blur`).
+/// While music plays the page glow moves every frame, and the blur would be redone each
+/// frame; so then the blurred copy is painted once into an image and that image is reused
+/// (refreshed when the art changes). Paused, it's drawn live as before.
+class _CoverGlow extends StatefulWidget {
+  const _CoverGlow({required this.title, required this.b64, required this.still});
+  final String title;
+  final String? b64;
+
+  /// Snapshot the blurred copy (the page is animating).
+  final bool still;
+
+  @override
+  State<_CoverGlow> createState() => _CoverGlowState();
+}
+
+class _CoverGlowState extends State<_CoverGlow> {
+  static const _sigma = 17.0, _inset = .08, _radius = 18.0;
+  final _snap = SnapshotController();
+  Uint8List? _bytes;
+  int? _seen; // last decoded frame of the cover we snapshotted
+
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+    _snap.allowSnapshotting = widget.still;
+  }
+
+  @override
+  void didUpdateWidget(_CoverGlow old) {
+    super.didUpdateWidget(old);
+    if (old.b64 != widget.b64 || old.title != widget.title) {
+      _decode();
+      _snap.clear();
+    }
+    _snap.allowSnapshotting = widget.still;
+  }
+
+  void _decode() {
+    final b = widget.b64;
+    _bytes = b == null || b.isEmpty ? null : base64Decode(b);
+    _seen = null;
+  }
+
+  @override
+  void dispose() {
+    _snap.dispose();
+    super.dispose();
+  }
+
+  /// The art for the blurred copy. A cover decodes a frame or two later: snapshot again then.
+  Widget _art() {
+    final b = _bytes;
+    if (b == null) return FallbackArt(title: widget.title);
+    return Image.memory(
+      b,
+      fit: BoxFit.cover,
+      frameBuilder: (context, child, frame, sync) {
+        if (frame != null && frame != _seen) {
+          _seen = frame;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _snap.clear();
+          });
+        }
+        return child;
+      },
+      errorBuilder: (_, _, _) => FallbackArt(title: widget.title),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      // The snapshot needs room for the blur's spill around the inset copy.
+      const spill = _sigma * 3;
+      final dx = c.maxWidth * _inset, dy = c.maxHeight * _inset;
+      return Stack(
+        clipBehavior: Clip.none,
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            left: dx - spill,
+            right: dx - spill,
+            top: dy - spill,
+            bottom: dy - spill,
+            child: SnapshotWidget(
+              controller: _snap,
+              mode: SnapshotMode.permissive,
+              autoresize: true,
+              child: Padding(
+                padding: const EdgeInsets.all(spill),
+                child: Opacity(
+                  opacity: .9,
+                  child: ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(sigmaX: _sigma, sigmaY: _sigma, tileMode: TileMode.decal),
+                    child: _art(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AlbumArt(title: widget.title, b64: widget.b64, radius: _radius),
+        ],
+      );
+    },
+  );
+}
+
+/// `.line` for the Music page: same look, but its glow is two faint wider bars instead of a
+/// blur (the page glow behind it may be animating).
+class _SoftLine extends StatelessWidget {
+  const _SoftLine(this.value, this.color);
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 2,
+    width: double.infinity,
+    child: TweenAnimationBuilder<double>(
+      tween: Tween(end: value.clamp(0.0, 1.0)),
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeOut,
+      builder: (context, v, _) => CustomPaint(painter: _SoftLinePainter(v, color)),
+    ),
+  );
+}
+
+class _SoftLinePainter extends CustomPainter {
+  _SoftLinePainter(this.v, this.color);
+  final double v;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = Radius.circular(size.height / 2);
+    canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, r), Paint()..color = _t.line);
+    if (v <= 0) return;
+    final fill = Rect.fromLTWH(0, 0, math.max(size.height, size.width * v), size.height);
+    // Many faint layers, widest first, add up to a haze that fades out over ~10 px.
+    for (final (grow, a) in const [(10.0, .02), (7.5, .025), (5.5, .03), (4.0, .035), (2.5, .045), (1.2, .06)]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(fill.inflate(grow), Radius.circular(size.height / 2 + grow)),
+        Paint()..color = color.withValues(alpha: a),
+      );
+    }
+    canvas.drawRRect(RRect.fromRectAndRadius(fill, r), Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_SoftLinePainter o) => o.v != v || o.color != color;
 }
 
 // ------------------------------------------------------------------ hotspot

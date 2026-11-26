@@ -12,6 +12,7 @@ import psutil
 from ..protocol import Cpu, Disk, Gpu, NetRate, Ram, SysHistory, SystemData
 from .base import BaseProvider, run_cmd
 from .gpu import GpuBackend, pick_gpu
+from .mac_temp import MacTemps
 
 
 def net_totals() -> tuple[int, int]:
@@ -43,6 +44,8 @@ class SystemCollector(BaseProvider):
 
     async def setup(self) -> None:
         self.gpu = self.gpu or pick_gpu()
+        self.temps = MacTemps()  # CPU °C on Apple Silicon; None elsewhere
+        self._temp, self._temp_at = None, 0.0
         self.cpu_model = await self._cpu_model()
         self.cores = psutil.cpu_count(logical=False)
         self.threads = psutil.cpu_count(logical=True)
@@ -77,12 +80,15 @@ class SystemCollector(BaseProvider):
             self._disk = psutil.disk_usage(data_disk()).percent
             self._disk_at = now
         g = await self.gpu.sample()
+        if now - self._temp_at >= 2:  # temperature moves slowly: every 2 s is plenty
+            self._temp, self._temp_at = self.temps.cpu_c(), now
         self.cpu_hist.append(round(cpu, 1))
         self.gpu_hist.append(round(g.pct, 1) if g.pct is not None else None)
         self.down_hist.append(round(down))
         self.up_hist.append(round(up))
         return SystemData(
-            cpu=Cpu(pct=round(cpu, 1), model=self.cpu_model, cores=self.cores, threads=self.threads),
+            cpu=Cpu(pct=round(cpu, 1), model=self.cpu_model, cores=self.cores, threads=self.threads,
+                    temp_c=self._temp),
             gpu=Gpu(available=g.available, pct=g.pct, temp_c=g.temp_c, model=g.model,
                     vram_used=g.vram_used, vram_total=g.vram_total, vram_label=g.vram_label),
             ram=Ram(used=vm.total - vm.available, total=vm.total),

@@ -65,8 +65,10 @@ class _Laptop extends ConsumerWidget {
     final vram = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuT = s.cpu.tempC;
 
-    Widget ring(String label, double? pct, String sub, Color c) => LqCard(
+    Widget ring(String label, double? pct, String sub, Color c, {String? sub2}) => LqCard(
           child: Row(children: [
             LqRing(
               value: (pct ?? 0) / 100,
@@ -81,13 +83,15 @@ class _Laptop extends ConsumerWidget {
                 _fit(Text(label, style: lqT(14, w: FontWeight.w700), maxLines: 1)),
                 const SizedBox(height: 1),
                 _mu(sub),
+                if (sub2 != null) _mu(sub2),
               ]),
             ),
           ]),
         );
 
     final cards = [
-      ring('Processor', s.cpu.pct, s.cpu.cores != null ? '${s.cpu.cores} cores' : s.cpu.model, lqTx),
+      ring('Processor', s.cpu.pct, s.cpu.cores != null ? '${s.cpu.cores} cores' : s.cpu.model, lqTx,
+          sub2: cpuT == null ? null : '${temp(cpuT, f)}°${f ? 'F' : 'C'}'),
       ring('Graphics', g.available ? g.pct : null,
           g.tempC != null ? '${g.tempC!.round()}°C' : (g.model ?? 'Not available'), lqCyan),
       ring('Memory', ram, '${(s.ramUsed / gb).toStringAsFixed(1)}/${(s.ramTotal / gb).round()} GB', lqTx),
@@ -140,6 +144,7 @@ class _Internet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final n = topicData<NetworkData>(ref, 'network');
+    final sys = topicData<SystemData>(ref, 'system');
     final live = ref.watch(agentProvider).live;
     if (n == null) return _note('Waiting for network data…');
     final st = n.speedtest, last = st.last, prog = st.progress;
@@ -183,6 +188,7 @@ class _Internet extends ConsumerWidget {
             ]),
             const SizedBox(height: 8),
             Flexible(
+              flex: 3,
               child: _mu(
                 '$uptime\n'
                 'Last drop ${n.lastDrop == null ? 'never' : ago(now.difference(n.lastDrop!))}\n'
@@ -193,6 +199,13 @@ class _Internet extends ConsumerWidget {
                 h: 1.45,
               ),
             ),
+            // What the laptop is moving right now, beside its last minute.
+            if (sys != null) ...[
+              const SizedBox(height: 12),
+              lqLab('Laptop traffic now'),
+              const SizedBox(height: 6),
+              Expanded(flex: 2, child: _traffic(sys)),
+            ],
           ]),
         );
 
@@ -230,6 +243,36 @@ class _Internet extends ConsumerWidget {
         ]);
       },
     );
+  }
+
+  /// Down and up now (stacked), and the last minute of both: down filled white, up cyan.
+  Widget _traffic(SystemData s) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    final peak = [...s.downHistory, ...s.upHistory, s.downBps, s.upBps].fold(64 * 1024.0, math.max) * 1.1;
+    Widget now(String arrow, Color c, String v, String u) => Text.rich(
+          TextSpan(children: [
+            TextSpan(text: '$arrow ', style: lqT(13, w: FontWeight.w700, c: c)),
+            TextSpan(text: v, style: lqN(17)),
+            TextSpan(text: ' $u', style: lqT(11, w: FontWeight.w600, c: lqMu)),
+          ]),
+          maxLines: 1,
+          softWrap: false,
+        );
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        now('↓', lqTx, down, downU),
+        const SizedBox(height: 5),
+        now('↑', lqCyan, up, upU),
+      ]),
+      const SizedBox(width: 12),
+      Expanded(
+        child: _LqChart([
+          _Line(s.upHistory, lqCyan.withValues(alpha: .9), 2),
+          _Line(s.downHistory, lqTx, 2.5, fill: true),
+        ], max: peak, pad: 3),
+      ),
+    ]);
   }
 }
 

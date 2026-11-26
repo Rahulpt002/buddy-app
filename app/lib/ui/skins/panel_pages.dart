@@ -1,6 +1,8 @@
 // Concept 3 — Panel: page layouts. Sizes are the concept's CSS px (design canvas 915×412).
+import 'dart:async' show Timer;
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,15 +46,17 @@ Color _lvl(double v) => v < 50 ? _g : (v < 80 ? _a : _r);
 
 bool _glows(Color c) => c == _a || c == _g || c == _r || c == _sig;
 
-/// Condensed LCD readout with optional small unit (`.rd` + `small`).
+/// Condensed LCD readout with optional small unit (`.rd` + `small`). Lit colours glow;
+/// [glow] false drops that (no blurred shadow next to something that animates).
 Widget _rd(String v, double size,
     {Color c = _wink,
     String? small,
     Color smallColor = _wdim,
     double smallScale = .42,
     TextAlign? align,
-    int maxLines = 1}) {
-  final shadows = _glows(c) ? [Shadow(color: c.withValues(alpha: .38), blurRadius: 12)] : null;
+    int maxLines = 1,
+    bool glow = true}) {
+  final shadows = glow && _glows(c) ? [Shadow(color: c.withValues(alpha: .38), blurRadius: 12)] : null;
   return Text.rich(
     TextSpan(children: [
       TextSpan(text: v, style: _t.d(size, c: c, h: .9).copyWith(shadows: shadows, letterSpacing: size * .005)),
@@ -512,6 +516,10 @@ class _PC extends ConsumerWidget {
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuTemp = s.cpu.tempC == null ? null : '${temp(s.cpu.tempC!, f)} °${f ? 'F' : 'C'}';
+    final cores = s.cpu.cores == null ? null : '${s.cpu.cores} cores';
+    final threads = s.cpu.cores == null ? null : '${s.cpu.threads ?? s.cpu.cores} threads';
 
     Widget ch(String label, double? v, Color c, String sub) => _Cell(
           label: label,
@@ -528,7 +536,7 @@ class _PC extends ConsumerWidget {
                         Text(' %', style: _t.d(21, w: FontWeight.w500, c: _wdim, h: .9)),
                       ]),
                 const Spacer(),
-                Text(sub, style: _dim(11.5)),
+                Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: _dim(11.5)),
               ]),
             ),
           ]),
@@ -539,8 +547,12 @@ class _PC extends ConsumerWidget {
       Expanded(
         flex: 47,
         child: _row([
-          (1, ch('CPU', s.cpu.pct, PanelSkin.b,
-              s.cpu.cores != null ? '${s.cpu.cores} cores\n${s.cpu.threads ?? s.cpu.cores} threads' : s.cpu.model)),
+          (1, ch('CPU', s.cpu.pct, PanelSkin.b, switch ((cores, cpuTemp)) {
+            (null, null) => s.cpu.model,
+            (null, final t?) => '${s.cpu.model}\n$t',
+            (final c?, null) => '$c\n$threads',
+            (final c?, final t?) => '$c, $threads\n$t',
+          })),
           (1, ch('GPU', g.available ? g.pct : null, PanelSkin.tq, g.tempC != null ? '${g.tempC!.round()} °C' : (g.model ?? 'Not available'))),
           (1, ch('RAM', ramPct, PanelSkin.v, '${gb(s.ramUsed)} / ${gb(s.ramTotal).replaceAll('.0', '')} GB')),
           (1, ch(g.vramLabel, vramPct, PanelSkin.pk,
@@ -593,6 +605,7 @@ class _Net extends ConsumerWidget {
     final down = running ? st?.progress?.downBps : st?.last?.downBps;
     final up = running ? st?.progress?.upBps : st?.last?.upBps;
     final online = n?.online ?? false;
+    final sys = topicData<SystemData>(ref, 'system');
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _header('Network'),
@@ -640,21 +653,29 @@ class _Net extends ConsumerWidget {
       ),
       const SizedBox(height: _gap),
       Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _labRow('Latency, last 2 minutes'),
-          Expanded(
-            child: _scope(
-              chart: LineChart(
-                min: 0,
-                max: 50,
-                pad: 3,
-                grid: ChartGrid.scope,
-                gridColor: const Color(0xFF1E2226),
-                series: [if (n != null) LineSeries(n.latencyHistory, _a, width: 1.5, glow: true, halo: 3)],
+        child: _row([
+          (200, Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _labRow('Latency, last 2 minutes'),
+            Expanded(
+              child: _scope(
+                chart: LineChart(
+                  min: 0,
+                  max: 50,
+                  pad: 3,
+                  grid: ChartGrid.scope,
+                  gridColor: const Color(0xFF1E2226),
+                  series: [if (n != null) LineSeries(n.latencyHistory, _a, width: 1.5, glow: true, halo: 3)],
+                ),
+                legend: [Text('Scale 0–50 ms', style: _dim(11.5))],
               ),
-              legend: [Text('Scale 0–50 ms', style: _dim(11.5))],
             ),
-          ),
+          ])),
+          // Over the Run test key: what the laptop is moving right now.
+          if (sys != null)
+            (125, Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              _labRow('Laptop traffic, last minute'),
+              Expanded(child: _live(sys)),
+            ])),
         ]),
       ),
       const SizedBox(height: _gap),
@@ -705,6 +726,36 @@ class _Net extends ConsumerWidget {
   }
 
   static String _gbNum(int b) => (b / (1 << 30)).toStringAsFixed(1);
+
+  /// Down / up readouts now, and a scope of both over the last minute.
+  static Widget _live(SystemData s) {
+    final (dv, du) = rate(s.downBps);
+    final (uv, uu) = rate(s.upBps);
+    final top = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024);
+    return PanelSkin.window(
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _rd(dv, 22, c: PanelSkin.b, small: '$du down', smallScale: .5),
+          const SizedBox(height: 5),
+          _rd(uv, 22, c: PanelSkin.pk, small: '$uu up', smallScale: .5),
+        ]),
+        const SizedBox(width: 10),
+        Expanded(
+          child: LineChart(
+            grid: ChartGrid.scope,
+            gridColor: const Color(0xFF1E2226),
+            pad: 2,
+            max: top * 1.15,
+            series: [
+              LineSeries(s.upHistory, PanelSkin.pk, width: 1.4, step: true, glow: true, halo: 3),
+              LineSeries(s.downHistory, PanelSkin.b, width: 1.5, step: true, glow: true, halo: 3),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
 }
 
 Widget _quad(String v, String unit, String label, {double size = 26}) => Column(
@@ -1027,7 +1078,12 @@ class _Music extends ConsumerWidget {
                 const SizedBox(height: 4),
                 if (m.artist != null) Text(m.artist!, maxLines: 1, overflow: TextOverflow.ellipsis, style: _wt(15, FontWeight.w600)),
                 if (m.album != null) Text(m.album!, maxLines: 1, overflow: TextOverflow.ellipsis, style: _dim()),
-                const Spacer(),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 0, 10),
+                    child: _Spectrum(playing: m.playing),
+                  ),
+                ),
                 Ticker(
                   period: const Duration(seconds: 1),
                   builder: (context, now) {
@@ -1041,7 +1097,7 @@ class _Music extends ConsumerWidget {
                       ),
                       const SizedBox(height: 4),
                       Row(children: [
-                        _rd(mmss(pos), 18, c: _g),
+                        _rd(mmss(pos), 18, c: _g, glow: !m.playing),
                         const Spacer(),
                         _rd(len == 0 ? '—' : mmss(len), 18, c: _wdim),
                       ]),
@@ -1099,7 +1155,7 @@ class _SeekLedState extends State<_SeekLed> {
         double f(Offset p) => (p.dx / c.maxWidth).clamp(0.0, 1.0);
         final bar = Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: _sg(_drag ?? widget.value, _g, n: 40),
+          child: _LedStrip(value: _drag ?? widget.value, color: _g, segments: 40),
         );
         if (!widget.enabled) return bar;
         return GestureDetector(
@@ -1114,6 +1170,219 @@ class _SeekLedState extends State<_SeekLed> {
           child: bar,
         );
       });
+}
+
+/// [LedBar] for the Music page: the same segments, but the lit ones bleed into a faint wider
+/// rect instead of a blurred glow (the spectrum meter beside it repaints many times a second).
+class _LedStrip extends StatelessWidget {
+  const _LedStrip({required this.value, required this.color, this.segments = 20});
+  final double value;
+  final Color color;
+  final int segments;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 10,
+        width: double.infinity,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: value.clamp(0.0, 1.0)),
+          duration: const Duration(milliseconds: 400),
+          builder: (context, v, _) => CustomPaint(painter: _LedStripPainter(v, color, segments)),
+        ),
+      );
+}
+
+class _LedStripPainter extends CustomPainter {
+  _LedStripPainter(this.v, this.color, this.n);
+  final double v;
+  final Color color;
+  final int n;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const gap = 2.0;
+    final lit = v <= 0 ? 0 : (v * n - 1e-9).ceil().clamp(0, n);
+    final seg = size.width / n;
+    final on = Paint()..color = color, bloom = Paint()..color = color.withValues(alpha: .22);
+    final off = Paint()..color = PanelSkin.off;
+    for (var i = 0; i < n; i++) {
+      final r = Rect.fromLTRB(i * seg, 0, (i + 1) * seg - gap, size.height);
+      if (i < lit) {
+        canvas.drawRect(r.inflate(1.5), bloom);
+        canvas.drawRect(r, on);
+      } else {
+        canvas.drawRect(r, off);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LedStripPainter o) => o.v != v || o.color != color || o.n != n;
+}
+
+/// A bench spectrum meter in the Now playing window: columns of LED segments, green, then
+/// amber near the top and red at the very top, each with a peak-hold segment that waits a
+/// moment and then drops back. The laptop sends no audio, so the levels are made up to
+/// look like music: a kick on every beat in the bass, a backbeat in the mids, hats up top
+/// and smoothed noise everywhere; the bass is taller and moves slower. On pause the columns
+/// fall away and it stops. It steps ~30 times a second, like real LED meters (and easy on
+/// the GPU), and only while the page is on screen (its ticker pauses off screen).
+class _Spectrum extends StatefulWidget {
+  const _Spectrum({required this.playing});
+  final bool playing;
+
+  static const bands = 16;
+
+  @override
+  State<_Spectrum> createState() => _SpectrumState();
+}
+
+class _SpectrumState extends State<_Spectrum> with SingleTickerProviderStateMixin {
+  static const _n = _Spectrum.bands;
+  late final _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  Timer? _next;
+  Duration? _stamp;
+  double _t = 0; // music time, seconds (only runs while playing)
+  final _lvl = List<double>.filled(_n, 0), _peak = List<double>.filled(_n, 0);
+  final _hold = List<double>.filled(_n, 0), _drop = List<double>.filled(_n, 0);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playing) _wake();
+  }
+
+  @override
+  void didUpdateWidget(_Spectrum old) {
+    super.didUpdateWidget(old);
+    if (widget.playing && !old.playing) _wake(); // on pause the running steps wind down by themselves
+  }
+
+  void _wake() {
+    if (_next != null || _ticker.isActive) return;
+    _stamp = null;
+    _ticker.start();
+  }
+
+  /// One step per frame, then wait ~33 ms for the next (the ticker, muted off screen,
+  /// holds the next step until the page shows again).
+  void _tick(Duration _) {
+    _ticker.stop();
+    final now = SchedulerBinding.instance.currentFrameTimeStamp;
+    final dt = _stamp == null ? 1 / 30 : ((now - _stamp!).inMicroseconds / 1e6).clamp(0.0, .1);
+    _stamp = now;
+    _step(dt);
+    _frame.value++;
+    if (widget.playing || _lit) {
+      _next = Timer(const Duration(milliseconds: 33), () {
+        _next = null;
+        if (mounted) _ticker.start();
+      });
+    }
+  }
+
+  bool get _lit => _lvl.any((v) => v > .001) || _peak.any((v) => v > .001);
+
+  void _step(double dt) {
+    final playing = widget.playing;
+    if (playing) _t += dt;
+    for (var i = 0; i < _n; i++) {
+      final f = i / (_n - 1); // 0 = bass … 1 = treble
+      final target = playing ? _level(i, f, _t) : 0.0;
+      final v = _lvl[i];
+      _lvl[i] = target > v
+          ? v + (target - v) * (1 - math.exp(-dt * (24 + 26 * f))) // quick attack, bass a little slower
+          : math.max(target, v - dt * (.75 + 1.1 * f) * (playing ? 1 : 2.6)); // bass falls slower
+      // Peak hold: sit for a moment, then fall with growing speed.
+      if (_lvl[i] >= _peak[i]) {
+        _peak[i] = _lvl[i];
+        _hold[i] = .6;
+        _drop[i] = 0;
+      } else if (_hold[i] > 0 && playing) {
+        _hold[i] -= dt;
+      } else {
+        _drop[i] += dt * (playing ? 1.8 : 4);
+        _peak[i] = math.max(_lvl[i], _peak[i] - _drop[i] * dt);
+      }
+    }
+  }
+
+  /// Music-like level for band [i] (fraction [f] up the spectrum) at time [t].
+  static double _level(int i, double f, double t) {
+    const beat = 60 / 116; // seconds per beat
+    final inBeat = (t % beat) / beat, inBar = (t % (beat * 4)) / beat;
+    final kick = math.exp(-inBeat * 6);
+    final backbeat = (inBar >= 1 && inBar < 2) || (inBar >= 3) ? math.exp(-(inBar % 1) * 7) : 0.0;
+    final hat = math.exp(-((t % (beat / 2)) / (beat / 2)) * 9);
+    // Smoothed random wander, slower in the bass.
+    final x = t * (2.2 + 8 * f) + i * 3.7;
+    final k = x.floor(), u = x - k, s = u * u * (3 - 2 * u);
+    final noise = _hash(i, k) * (1 - s) + _hash(i, k + 1) * s;
+    var v = (.62 - .28 * f) * (.4 + .6 * noise) // bass loud, highs quieter
+        +
+        .46 * kick * math.max(0, 1 - f * 2.6) +
+        .3 * backbeat * math.exp(-math.pow((f - .42) / .2, 2)) +
+        .32 * hat * math.max(0, f - .45) * 1.8;
+    v *= .88 + .12 * math.sin(t * .21 + i * .4); // slow swells, so it isn't too regular
+    return v.clamp(0.0, 1.0);
+  }
+
+  static double _hash(int i, int k) {
+    final s = math.sin(i * 127.1 + k * 311.7) * 43758.5453;
+    return s - s.floorToDouble();
+  }
+
+  @override
+  void dispose() {
+    _next?.cancel();
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      RepaintBoundary(child: CustomPaint(painter: _SpectrumPainter(this, _frame), child: const SizedBox.expand()));
+}
+
+class _SpectrumPainter extends CustomPainter {
+  _SpectrumPainter(this.s, Listenable frame) : super(repaint: frame);
+  final _SpectrumState s;
+
+  static Color _zone(int row, int rows) {
+    final f = (row + 1) / rows;
+    return f > .86 ? _r : (f > .66 ? _a : _g);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const n = _Spectrum.bands, colGap = 5.0, rowGap = 2.0;
+    if (size.height < 14 || size.width < n * 6) return;
+    final rows = ((size.height + rowGap) / 7.5).floor().clamp(3, 16);
+    final colW = (size.width - colGap * (n - 1)) / n;
+    final segH = (size.height + rowGap) / rows - rowGap;
+    final lit = Paint(), bloom = Paint(), off = Paint();
+    for (var i = 0; i < n; i++) {
+      final x = i * (colW + colGap);
+      final on = (s._lvl[i] * rows).round();
+      final peak = s._peak[i] > .02 ? (s._peak[i] * rows).ceil() - 1 : -1;
+      for (var r = 0; r < rows; r++) {
+        final rect = Rect.fromLTWH(x, size.height - (r + 1) * (segH + rowGap) + rowGap, colW, segH);
+        final c = _zone(r, rows);
+        if (r < on || r == peak) {
+          canvas.drawRect(rect.inflate(1.2), bloom..color = c.withValues(alpha: .2));
+          canvas.drawRect(rect, lit..color = c);
+        } else {
+          // Unlit segments keep a trace of their colour, like real LEDs.
+          canvas.drawRect(rect, off..color = Color.lerp(PanelSkin.off, c, .07)!);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SpectrumPainter old) => old.s != s;
 }
 
 // ====================================================================== Hotspot

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/scheduler.dart' as sch;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -213,8 +214,13 @@ class _RoomData {
     required this.claudeTxt,
     required this.leaves,
     required this.phone,
+    this.liveSpeaker = false,
   });
   final bool dark, playing;
+
+  /// The Music close-up: the speaker's cones and the notes are left to [_LiveSpeaker],
+  /// which animates them over the room while music plays.
+  final bool liveSpeaker;
 
   /// Slack is connected and set up (otherwise the pinboard stays bare, not "All caught up").
   final bool slackOn;
@@ -246,15 +252,18 @@ class _RoomData {
       claude == o.claude &&
       claudeTxt == o.claudeTxt &&
       leaves == o.leaves &&
-      phone == o.phone;
+      phone == o.phone &&
+      liveSpeaker == o.liveSpeaker;
 }
 
 const _mon3names = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 /// [code] is the topic the plant's streak leaves come from: GitHub everywhere except the
 /// GitHub page, which follows the GitHub / GitLab switch. [phone] is true only on the
-/// Hotspot page, the one place the roof phone (and its data) appears.
-_RoomData _roomData(WidgetRef ref, DateTime now, bool dark, {String code = 'github', bool phone = false}) {
+/// Hotspot page, the one place the roof phone (and its data) appears. [liveSpeaker]: the
+/// Music page, where the speaker comes alive (see [_RoomData.liveSpeaker]).
+_RoomData _roomData(WidgetRef ref, DateTime now, bool dark,
+    {String code = 'github', bool phone = false, bool liveSpeaker = false}) {
   final sys = topicData<SystemData>(ref, 'system');
   final cl = topicData<ClaudeData>(ref, 'claude');
   final media = topicData<MediaData>(ref, 'media');
@@ -296,6 +305,7 @@ _RoomData _roomData(WidgetRef ref, DateTime now, bool dark, {String code = 'gith
     claudeTxt: cl?.fiveHour == null ? '—' : '${five.round()}%',
     leaves: (gh?.streakCurrent ?? 0).clamp(0, 12),
     phone: phone ? _phoneOf(topicData<HotspotData>(ref, 'hotspot')) : null,
+    liveSpeaker: liveSpeaker,
   );
 }
 
@@ -602,21 +612,20 @@ void _paintRoom(Canvas c, _RoomData r) {
       [k.dark ? const Color(0xFFFFE6A8) : Dio.coral, const Color(0xFFE8613F), const Color(0xFFD25536)]);
   if (k.dark) _glow(c, _p(3.23, 2.15, 3.55), 26, 26, lampGlow, .75);
 
-  // speaker (notes float while music plays)
+  // speaker (notes float while music plays; on the Music page [_LiveSpeaker] draws the
+  // cones and notes instead, animated)
   _box(c, 2.3, .9, 2.72, .62, .55, .95, _dark3);
-  _group(c, _onY(2.3, 1.45, 3.67), () {
-    c.drawCircle(const Offset(.31, .3), .14, _fill(const Color(0xFF22252F)));
-    c.drawCircle(const Offset(.31, .66), .22, _fill(const Color(0xFF22252F)));
-    c.drawCircle(const Offset(.31, .66), .08, _fill(const Color(0xFF555B70)));
-  });
-  if (r.playing) {
-    for (final (o, s) in [(_p(2.4, 1.0, 4.1), 1.0), (_p(2.8, .9, 4.6), .8)]) {
-      c.save();
-      c.translate(o.dx, o.dy);
-      c.scale(s);
-      c.drawOval(Rect.fromCenter(center: const Offset(0, 12), width: 10, height: 8), _fill(Dio.plum));
-      c.drawRect(const Rect.fromLTWH(4, -6, 2, 18), _fill(Dio.plum));
-      c.restore();
+  if (!r.liveSpeaker) {
+    _group(c, _onY(2.3, 1.45, 3.67), () => _speakerFace(c, 0, 0, 0));
+    if (r.playing) {
+      for (final (o, s) in [(_p(2.4, 1.0, 4.1), 1.0), (_p(2.8, .9, 4.6), .8)]) {
+        c.save();
+        c.translate(o.dx, o.dy);
+        c.scale(s);
+        c.drawOval(Rect.fromCenter(center: const Offset(0, 12), width: 10, height: 8), _fill(Dio.plum));
+        c.drawRect(const Rect.fromLTWH(4, -6, 2, 18), _fill(Dio.plum));
+        c.restore();
+      }
     }
   }
 
@@ -830,6 +839,209 @@ class _RoomPainter extends CustomPainter {
   bool shouldRepaint(_RoomPainter o) => o.fit != fit || !o.r.same(r);
 }
 
+// ------------------------------------------------------------------ the live speaker (Music)
+
+/// The speaker's front (local face units, .62 × .95): tweeter above, woofer below. [woof]
+/// and [tweet] (0..1) push the cones out; [e] (0..1) is how alive it is. All zero draws the
+/// still speaker exactly as the room always has.
+void _speakerFace(Canvas c, double woof, double tweet, double e) {
+  const cone = Color(0xFF22252F), cap = Color(0xFF555B70);
+  c.drawCircle(const Offset(.31, .3), .14 * (1 + .05 * tweet), _fill(cone));
+  if (e > 0) c.drawCircle(const Offset(.31, .3), .045 * (1 + .5 * tweet), _fill(cap.withValues(alpha: e)));
+  c.drawCircle(const Offset(.31, .66), .22 * (1 + .06 * woof), _fill(cone));
+  if (e > 0) {
+    // the cone's rim catching the light as it moves
+    c.drawCircle(const Offset(.31, .66), .155 * (1 + .14 * woof),
+        _stroke(cap.withValues(alpha: (.25 + .5 * woof) * e), .022));
+  }
+  c.drawCircle(const Offset(.31, .66), .08 * (1 + .45 * woof), _fill(cap));
+}
+
+/// The room's music note in room pixels (head centred at (0, 12), stem up to −6); [kind] 1
+/// adds a flag (♪), 2 makes a beamed pair (♫). One path, so a fading note stays even.
+Path _notePath(int kind) {
+  final p = Path()
+    ..addOval(Rect.fromCenter(center: const Offset(0, 12), width: 10, height: 8))
+    ..addRect(const Rect.fromLTWH(4, -6, 2, 18));
+  if (kind == 1) {
+    p
+      ..moveTo(6, -6)
+      ..quadraticBezierTo(13, -1, 11, 7)
+      ..quadraticBezierTo(10, 1, 6, -1)
+      ..close();
+  } else if (kind == 2) {
+    p
+      ..addOval(Rect.fromCenter(center: const Offset(13, 10), width: 10, height: 8))
+      ..addRect(const Rect.fromLTWH(17, -8, 2, 18))
+      ..addPolygon(const [Offset(4, -6), Offset(19, -8), Offset(19, -3.5), Offset(4, -1.5)], true);
+  }
+  return p;
+}
+
+final _notePaths = [for (var k = 0; k < 3; k++) _notePath(k)];
+
+/// One rising note: [born] in [_SpeakerClock.t] seconds; the rest comes from [id].
+typedef _Rise = ({int id, double born});
+
+const _riseLife = 3.4;
+
+/// Stable pseudo-random 0..1 for an integer.
+double _rnd(int i) {
+  var x = (i * 0x27d4eb2d + 0x165667b1) & 0x7fffffff;
+  x = ((x ^ (x >> 15)) * 0x2c1b3c6d) & 0x7fffffff;
+  x = ((x ^ (x >> 12)) * 0x297a2d39) & 0x7fffffff;
+  return (x ^ (x >> 15)) / 0x7fffffff;
+}
+
+/// The Music close-up's clock: [t] is real seconds (the notes keep rising after a pause),
+/// [beat] seconds of music (slows to a stop on pause), [e] eases 0 ↔ 1 with play / pause.
+/// New notes only while playing; the ticker stops once paused, settled and the last note
+/// has faded, and (like any ticker) pauses off screen.
+class _SpeakerClock extends ChangeNotifier {
+  _SpeakerClock(TickerProvider vsync, bool playing) : _on = playing, e = playing ? 1 : 0 {
+    _tk = vsync.createTicker(_tick);
+    if (playing) {
+      // opened mid-song: a couple of notes are already on their way up
+      notes.addAll([(id: _id++, born: -1.9), (id: _id++, born: -.95)]);
+      _tk.start();
+    }
+  }
+
+  late final sch.Ticker _tk;
+  bool _on;
+  double t = 0, beat = 0, e, _wait = 0;
+  int _id = 0;
+  Duration _last = Duration.zero;
+  final notes = <_Rise>[];
+
+  set playing(bool v) {
+    if (v == _on) return;
+    _on = v;
+    _wait = 0;
+    if (!_tk.isActive) {
+      _last = Duration.zero;
+      _tk.start();
+    }
+  }
+
+  void _tick(Duration now) {
+    final dt = ((now - _last).inMicroseconds / 1e6).clamp(0.0, .1);
+    _last = now;
+    t += dt;
+    final goal = _on ? 1.0 : 0.0;
+    e += (goal - e) * (1 - math.exp(-dt * 3.5));
+    if ((goal - e).abs() < .003) e = goal;
+    beat += dt * e;
+    notes.removeWhere((n) => t - n.born > _riseLife);
+    if (_on && (_wait -= dt) <= 0) {
+      notes.add((id: _id, born: t));
+      _wait = .7 + .5 * _rnd(_id++ * 7 + 1);
+    }
+    notifyListeners();
+    if (!_on && e == 0 && notes.isEmpty) _tk.stop();
+  }
+
+  /// A plausible kick drum (about 117 bpm, each hit a little different), 0..1.
+  double kick(double tb) {
+    final x = tb * 1.95, i = x.floor(), f = x - i;
+    final strength = .45 + .55 * _rnd(i);
+    return strength * math.min(1.0, f / .07) * math.exp(-math.max(0.0, f - .07) * 6);
+  }
+
+  @override
+  void dispose() {
+    _tk.dispose();
+    super.dispose();
+  }
+}
+
+/// Draws the Music close-up's speaker over the room: cones that pump with the beat, a
+/// faint sound ring off the woofer on each hit, and notes that rise from the speaker and
+/// fade. Still (and identical to the room's own speaker) when paused.
+class _LiveSpeaker extends StatefulWidget {
+  const _LiveSpeaker({required this.fit, required this.playing});
+  final _Fit fit;
+  final bool playing;
+  @override
+  State<_LiveSpeaker> createState() => _LiveSpeakerState();
+}
+
+class _LiveSpeakerState extends State<_LiveSpeaker> with SingleTickerProviderStateMixin {
+  late final _k = _SpeakerClock(this, widget.playing);
+
+  @override
+  void didUpdateWidget(_LiveSpeaker old) {
+    super.didUpdateWidget(old);
+    _k.playing = widget.playing;
+  }
+
+  @override
+  void dispose() {
+    _k.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      RepaintBoundary(child: CustomPaint(painter: _SpeakerPainter(_k, widget.fit), size: Size.infinite));
+}
+
+class _SpeakerPainter extends CustomPainter {
+  _SpeakerPainter(this.k, this.fit) : super(repaint: k);
+  final _SpeakerClock k;
+  final _Fit fit;
+
+  static const _cols = [Dio.plum, Dio.plum, Dio.coral, Dio.teal];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    canvas.translate(fit.tx, fit.ty);
+    canvas.scale(fit.k);
+    final e = k.e;
+    final kick = k.kick(k.beat) * e;
+    // hi-hats: twice the kick's rate, softer, with a little wander
+    final hx = k.beat * 3.9, hf = hx - hx.floor();
+    final hat = e * (.35 + .65 * _rnd(hx.floor() + 77)) * math.exp(-hf * 9);
+    _group(canvas, _onY(2.3, 1.45, 3.67), () {
+      // a ripple off the woofer's rim on each kick, gone before it leaves the cabinet
+      if (e > 0) {
+        final f = (k.beat * 1.95) % 1;
+        final a = .5 * e * (1 - f) * (1 - f) * (.45 + .55 * _rnd((k.beat * 1.95).floor()));
+        if (a > .01) {
+          canvas.drawCircle(const Offset(.31, .66), .235 + .07 * Curves.easeOut.transform(f),
+              _stroke(Dio.plum.withValues(alpha: a), .022));
+        }
+      }
+      _speakerFace(canvas, kick, hat, e);
+    });
+    // notes rise to just under the top of the close-up
+    final ceil = _vbs[PageId.music]!.top + 14;
+    for (final n in k.notes) {
+      final age = k.t - n.born, p = (age / _riseLife).clamp(0.0, 1.0);
+      double rr(int salt) => _rnd(n.id * 31 + salt);
+      final o = _p(2.42 + .4 * rr(1), 1.0 + .3 * rr(2), 3.85);
+      final x = o.dx + (rr(3) - .55) * 50 * p + 5 * math.sin(age * (2 + rr(4)) + rr(5) * 6);
+      final y = o.dy - math.min(60.0, o.dy - ceil) * Curves.easeOutSine.transform(p);
+      final alpha = math.min((p / .14).clamp(0.0, 1.0), ((1 - p) / .45).clamp(0.0, 1.0));
+      if (alpha <= .01) continue;
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate((rr(6) - .5) * .5 + .15 * math.sin(age * 2.6 + rr(7) * 6));
+      canvas.scale((.62 + .3 * rr(8)) * (.6 + .4 * Curves.easeOutBack.transform((p / .2).clamp(0.0, 1.0))));
+      final kind = rr(9);
+      canvas.drawPath(_notePaths[kind < .4 ? 1 : (kind < .65 ? 2 : 0)],
+          _fill(_cols[(rr(10) * _cols.length).floor() % _cols.length].withValues(alpha: alpha)));
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_SpeakerPainter o) => o.k != k || o.fit != fit;
+}
+
 // ------------------------------------------------------------------ callouts (Home)
 
 typedef _Pin = ({int side, int slot, Offset at, String label, String value, Color color, PageId to});
@@ -1029,7 +1241,9 @@ class _Scene extends ConsumerWidget {
     return Ticker(
       builder: (context, now) {
         final r = _roomData(ref, now, d.dark,
-            code: view == PageId.github ? codeTopic(ref) : 'github', phone: view == PageId.hotspot);
+            code: view == PageId.github ? codeTopic(ref) : 'github',
+            phone: view == PageId.hotspot,
+            liveSpeaker: view == PageId.music);
         return LayoutBuilder(builder: (context, c) {
           final size = c.biggest;
           final vb = _vbs[view]!;
@@ -1041,6 +1255,8 @@ class _Scene extends ConsumerWidget {
           );
           Widget w = Stack(fit: StackFit.expand, children: [
             RepaintBoundary(child: CustomPaint(painter: _RoomPainter(r, fit))),
+            // still while the laptop is offline (its music state is stale)
+            if (r.liveSpeaker) _LiveSpeaker(fit: fit, playing: r.playing && !off),
             if (pins) RepaintBoundary(child: _Pins(fit: fit, dark: d.dark)),
           ]);
           if (off) w = ColorFiltered(colorFilter: _offFilter, child: w);
@@ -1061,9 +1277,19 @@ class _Scene extends ConsumerWidget {
 
 // ================================================================== cards & controls
 
-Widget _card(Dio d, Widget child, {EdgeInsets pad = const EdgeInsets.fromLTRB(14, 11, 14, 11)}) => Container(
+/// [Dio.shadow] without the blur, for a page where something moves: the desk phone would
+/// redraw blurred shadows every frame (Impeller keeps no raster cache).
+List<BoxShadow> _flatShadow(Dio d) => [
+      BoxShadow(color: d.shA, offset: const Offset(0, 4)),
+      BoxShadow(color: d.shB, offset: const Offset(0, 1)),
+    ];
+
+/// `.card`; [flat] swaps the soft shadow for [_flatShadow].
+Widget _card(Dio d, Widget child, {EdgeInsets pad = const EdgeInsets.fromLTRB(14, 11, 14, 11), bool flat = false}) =>
+    Container(
       padding: pad,
-      decoration: BoxDecoration(color: d.card, borderRadius: BorderRadius.circular(20), boxShadow: d.shadow),
+      decoration: BoxDecoration(
+          color: d.card, borderRadius: BorderRadius.circular(20), boxShadow: flat ? _flatShadow(d) : d.shadow),
       child: child,
     );
 
@@ -1176,8 +1402,10 @@ class _BtnState extends State<_Btn> {
 }
 
 /// Concept `detail()`: the zoomed room in a soft card next to a column of cards.
-/// [body] replaces the scrolling column when a page lays out its own right side.
-Widget _detail(BuildContext context, PageId k, List<Widget> right, {int l = 110, int r = 100, Widget? body}) {
+/// [body] replaces the scrolling column when a page lays out its own right side. [flat]:
+/// unblurred shadow (a page whose scene moves).
+Widget _detail(BuildContext context, PageId k, List<Widget> right,
+    {int l = 110, int r = 100, Widget? body, bool flat = false}) {
   final d = Dio.of(context);
   return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     Expanded(
@@ -1186,7 +1414,7 @@ Widget _detail(BuildContext context, PageId k, List<Widget> right, {int l = 110,
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          boxShadow: d.shadow,
+          boxShadow: flat ? _flatShadow(d) : d.shadow,
           gradient: LinearGradient(
             begin: const Alignment(-.342, -.94),
             end: const Alignment(.342, .94),
@@ -1258,12 +1486,21 @@ class _System extends ConsumerWidget {
     final vram = g.available && g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
+    final f = ref.watch(settingsProvider).fahrenheit;
+    final cpuT = s.cpu.tempC;
     return [
       _card(
         d,
         pad: const EdgeInsets.fromLTRB(14, 5, 14, 11),
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          meter('Processor', s.cpu.cores != null ? '${s.cpu.cores} cores' : s.cpu.model, s.cpu.pct, Dio.teal),
+          meter(
+              'Processor',
+              [
+                s.cpu.cores != null ? '${s.cpu.cores} cores' : s.cpu.model,
+                if (cpuT != null) '${temp(cpuT, f)}°${f ? 'F' : 'C'}',
+              ].join(', '),
+              s.cpu.pct,
+              Dio.teal),
           meter('Graphics', !g.available ? 'Not available' : (g.tempC != null ? '${g.tempC!.round()}°C' : (g.model ?? '')),
               g.available ? g.pct : null, Dio.plum),
           meter('Memory', '${(s.ramUsed / gb).toStringAsFixed(1)}/${(s.ramTotal / gb).round()} GB',
@@ -1296,6 +1533,16 @@ class _System extends ConsumerWidget {
     final shownDown = st.running ? (prog?.downBps ?? 0) : (last?.downBps ?? 0);
     final shownUp = st.running ? (prog?.upBps ?? 0) : (last?.upBps ?? 0);
     final (status, sc) = !live ? ('Unknown', Dio.coral) : (n.online ? ('Online', d.lkfg) : ('Offline', Dio.coral));
+    // The laptop's own traffic gets a card between latency and the speed test; the other
+    // two tighten up a little so the column still fits.
+    final sys = topicData<SystemData>(ref, 'system');
+    final tight = sys != null;
+    final tested = st.running ? 'Testing now' : (last == null ? 'Never tested' : 'Tested ${ago(now.difference(last.at))}');
+    final runBtn = _Btn(
+      label: st.running ? 'Testing…' : 'Run test',
+      h: 32,
+      onTap: st.running ? null : () => act(context, ref, 'speedtest.run', const {}, null, null, const Duration(seconds: 90)),
+    );
     return [
       _card(
         d,
@@ -1316,38 +1563,121 @@ class _System extends ConsumerWidget {
             ]),
           ]),
           const SizedBox(height: 6),
-          SizedBox(height: 46, child: CustomPaint(painter: _LatPainter(n.latencyHistory, d.latfill))),
+          SizedBox(height: tight ? 28 : 46, child: CustomPaint(painter: _LatPainter(n.latencyHistory, d.latfill))),
         ]),
       ),
+      if (sys != null) _traffic(d, sys),
       _card(
         d,
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _lab(d, 'Speed test'),
-          Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-            _big(d, last == null && !st.running ? '—' : mbps(shownDown), 30, small: 'down'),
-            const SizedBox(width: 14),
-            _big(d, last == null && !st.running ? '—' : mbps(shownUp), 30, small: 'up'),
-          ]),
-          const SizedBox(height: 6),
+          // With the traffic card above, the button moves up beside the figures to make room.
           Row(children: [
             Expanded(
-              child: _lab(d,
-                  '${st.running ? 'Testing now' : last == null ? 'Never tested' : 'Tested ${ago(now.difference(last.at))}'}, ${bytes(n.usageToday)} today'),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                    _big(d, last == null && !st.running ? '—' : mbps(shownDown), 30, small: 'down'),
+                    const SizedBox(width: 14),
+                    _big(d, last == null && !st.running ? '—' : mbps(shownUp), 30, small: 'up'),
+                  ]),
+                ),
+              ),
             ),
-            const SizedBox(width: 8),
-            _Btn(
-              label: st.running ? 'Testing…' : 'Run test',
-              h: 32,
-              onTap: st.running
-                  ? null
-                  : () => act(context, ref, 'speedtest.run', const {}, null, null, const Duration(seconds: 90)),
-            ),
+            if (tight) ...[const SizedBox(width: 8), runBtn],
           ]),
-          if (st.running) ...[const SizedBox(height: 6), _bar(d, (prog?.pct ?? 0) / 100, Dio.coral)],
+          SizedBox(height: tight ? 2 : 6),
+          if (tight && st.running)
+            Row(children: [
+              _lab(d, 'Testing now'),
+              const SizedBox(width: 10),
+              Expanded(child: _bar(d, (prog?.pct ?? 0) / 100, Dio.coral, h: 8)),
+            ])
+          else
+            Row(children: [
+              Expanded(child: _lab(d, '$tested, ${bytes(n.usageToday)} today')),
+              if (!tight) ...[const SizedBox(width: 8), runBtn],
+            ]),
+          if (!tight && st.running) ...[const SizedBox(height: 6), _bar(d, (prog?.pct ?? 0) / 100, Dio.coral)],
         ]),
       ),
     ];
   }
+
+  /// What the laptop is moving right now (down and up) beside a sparkline of the last minute.
+  Widget _traffic(Dio d, SystemData s) {
+    final (down, downU) = rate(s.downBps);
+    final (up, upU) = rate(s.upBps);
+    Widget now(String icon, Color c, String v, String u) => Row(mainAxisSize: MainAxisSize.min, children: [
+          DpIcon(icon, size: 14, color: c, stroke: 2.4),
+          const SizedBox(width: 2),
+          Text.rich(TextSpan(children: [_b(d, v, size: 16), _sm(d, ' $u')]), maxLines: 1),
+        ]);
+    return _card(
+      d,
+      pad: const EdgeInsets.fromLTRB(14, 6, 14, 7),
+      Row(children: [
+        Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          _lab(d, 'Laptop traffic now'),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            now('down', Dio.teal, down, downU),
+            const SizedBox(width: 10),
+            now('up', Dio.plum, up, upU),
+          ]),
+        ]),
+        const SizedBox(width: 14),
+        Expanded(
+          child: SizedBox(
+            height: 34,
+            child: CustomPaint(painter: _RatePainter(s.downHistory, s.upHistory, d.latfill)),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Last minute of laptop traffic: download as a teal line over the soft fill, upload as a
+/// thinner plum line, on a shared scale.
+class _RatePainter extends CustomPainter {
+  _RatePainter(this.down, this.up, this.fill);
+  final List<double> down, up;
+  final Color fill;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final peak = [...down, ...up].fold(64 * 1024.0, math.max) * 1.12;
+    const pad = 2.0;
+    Path? line(List<double> v) {
+      if (v.length < 2) return null;
+      double y(double x) => pad + (h - 2 * pad) * (1 - (x / peak).clamp(0.0, 1.0));
+      final dx = w / (v.length - 1);
+      final p = Path()..moveTo(0, y(v[0]));
+      for (var i = 1; i < v.length; i++) {
+        final xm = (i - .5) * dx;
+        p.cubicTo(xm, y(v[i - 1]), xm, y(v[i]), i * dx, y(v[i]));
+      }
+      return p;
+    }
+
+    final dl = line(down), ul = line(up);
+    if (dl != null) {
+      canvas.drawPath(
+          Path.from(dl)
+            ..lineTo(w, h)
+            ..lineTo(0, h)
+            ..close(),
+          _fill(fill));
+    }
+    if (ul != null) canvas.drawPath(ul, _stroke(Dio.plum, 1.8, cap: StrokeCap.round, join: StrokeJoin.round));
+    if (dl != null) canvas.drawPath(dl, _stroke(Dio.teal, 2.5, cap: StrokeCap.round, join: StrokeJoin.round));
+  }
+
+  @override
+  bool shouldRepaint(_RatePainter o) => !identical(o.down, down) || !identical(o.up, up) || o.fill != fill;
 }
 
 /// Concept `charts.lat`: smooth latency line over a soft fill (0–50 ms).
@@ -1637,9 +1967,11 @@ class _Music extends ConsumerWidget {
     final m = topicData<MediaData>(ref, 'media')!;
     final art = topicData<MediaArt>(ref, 'media.art');
     final skew = ref.read(agentProvider.notifier).clockSkewMs;
-    return _detail(context, PageId.music, [
+    // The speaker in the scene moves while music plays, so this page's shadows are flat.
+    return _detail(context, PageId.music, flat: true, [
       _card(
         d,
+        flat: true,
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Container(
@@ -1647,7 +1979,7 @@ class _Music extends ConsumerWidget {
               height: 96,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: const [BoxShadow(color: Color(0x262B2D42), blurRadius: 14, offset: Offset(0, 6))],
+                boxShadow: const [BoxShadow(color: Color(0x262B2D42), offset: Offset(0, 4))],
               ),
               child: AlbumArt(
                   title: m.title ?? 'Nothing playing', b64: art?.artId == m.artId ? art?.b64 : null, radius: 18),

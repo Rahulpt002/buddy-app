@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/scheduler.dart' as sched;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -762,6 +763,8 @@ class _Pc extends ConsumerWidget {
     final netHi = math.max(1024 * 1024.0, maxOf(_netHist) * 1.25);
     final vl = g.vramLabel.toLowerCase();
     final lw = math.max(4, vl.length);
+    final f = ref.watch(settingsProvider.select((s) => s.fahrenheit));
+    final cpuTemp = s.cpu.tempC == null ? '' : ' ${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
     return _page(
       'btop',
       right: _tabs(ref),
@@ -778,7 +781,7 @@ class _Pc extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(child: _Blocks(s.cpuHistory, hi: 100)),
-                  _Meter('cpu', s.cpu.pct / 100, '${s.cpu.pct.toStringAsFixed(1)}%'),
+                  _Meter('cpu', s.cpu.pct / 100, '${s.cpu.pct.toStringAsFixed(1)}%$cpuTemp'),
                   const SizedBox(height: 1),
                   g.available && g.pct != null
                       ? _Meter('gpu', g.pct! / 100, '${g.pct!.toStringAsFixed(1)}%')
@@ -875,6 +878,8 @@ class _Internet extends ConsumerWidget {
     final dl = st.running ? prog?.downBps : last?.downBps;
     final ul = st.running ? prog?.upBps : last?.upBps;
     final up = live && n.online;
+    final sys = topicData<SystemData>(ref, 'system');
+    final k = sys == null ? 0 : 1; // pane numbers shift when the net pane is shown
     return _page(
       'ping $host',
       right: _tabs(ref),
@@ -883,25 +888,39 @@ class _Internet extends ConsumerWidget {
         children: [
           Expanded(
             flex: 130,
-            child: _pane(
-              'ping',
-              n: 1,
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: ClipRect(child: _PingLines(n, host))),
-                  _ln([
-                    _s('link ', _dim),
-                    _s(up ? 'up' : 'down', up ? _gr : _rs),
-                    _s(
-                      '${n.onlineSince != null && up ? ' ${durLong(now.difference(n.onlineSince!))}' : ''}'
-                      '${n.lastDrop != null ? ', last drop ${ago(now.difference(n.lastDrop!))}' : ''}'
-                      ', ${bytes(n.usageToday)} today, ${bytes(n.usageMonth, digits: 0)} this month',
-                      _dim,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _pane(
+                    'ping',
+                    n: 1,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(child: ClipRect(child: _PingLines(n, host))),
+                        _ln([
+                          _s('link ', _dim),
+                          _s(up ? 'up' : 'down', up ? _gr : _rs),
+                          _s(
+                            '${n.onlineSince != null && up ? ' ${durLong(now.difference(n.onlineSince!))}' : ''}'
+                            '${n.lastDrop != null ? ', last drop ${ago(now.difference(n.lastDrop!))}' : ''}'
+                            ', ${bytes(n.usageToday)} today, ${bytes(n.usageMonth, digits: 0)} this month',
+                            _dim,
+                          ),
+                        ]),
+                      ],
                     ),
-                  ]),
+                  ),
+                ),
+                if (sys != null) ...[
+                  const SizedBox(height: _rowGap),
+                  SizedBox(
+                    height: 104,
+                    child: _pane('net', n: 2, c: _tl, tr: 'this mac, 60s', _NetNow(sys)),
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
           const SizedBox(width: _colGap),
@@ -913,7 +932,7 @@ class _Internet extends ConsumerWidget {
                 Expanded(
                   child: _pane(
                     'latency',
-                    n: 2,
+                    n: 2 + k,
                     tr: '0-50 ms',
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -945,7 +964,7 @@ class _Internet extends ConsumerWidget {
                 Expanded(
                   child: _pane(
                     'speedtest',
-                    n: 3,
+                    n: 3 + k,
                     c: _tl,
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -999,6 +1018,63 @@ class _Internet extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// btop's net box for this Mac: current rate and the minute's top on the left; the
+/// download graph rising from the middle and the upload graph hanging below it, each on
+/// its own scale.
+class _NetNow extends StatelessWidget {
+  const _NetNow(this.s);
+  final SystemData s;
+
+  @override
+  Widget build(BuildContext context) {
+    final dHi = maxOf([...s.downHistory, s.downBps], floor: 64 * 1024);
+    final uHi = maxOf([...s.upHistory, s.upBps], floor: 64 * 1024);
+    String r(double b) {
+      final (v, u) = rate(b);
+      return '$v $u';
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 15 * _cw(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _ln([_s('↓ ', _tl, true), _s(r(s.downBps), _fg, true)]),
+              _ln([_s('  top ${r(dHi)}', _dim)]),
+              _ln([_s('↑ ', _bl, true), _s(r(s.upBps), _fg, true)]),
+              _ln([_s('  top ${r(uHi)}', _dim)]),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: s.downHistory.length < 2
+              ? Center(child: _t('collecting…', c: _dim))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _Blocks(s.downHistory, hi: dHi * 1.05, palette: const [_tl]),
+                    ),
+                    const SizedBox(height: 2),
+                    Expanded(
+                      child: Transform.flip(
+                        flipY: true,
+                        child: _Blocks(s.upHistory, hi: uHi * 1.05, palette: const [_bl]),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ],
     );
   }
 }
@@ -1461,76 +1537,250 @@ class _Music extends ConsumerWidget {
           ),
           const SizedBox(width: _colGap),
           Expanded(
-            child: _pane(
-              'playlist',
-              n: 1,
-              tr: title == null ? 'stopped' : (m.playing ? 'playing' : 'paused'),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (title == null)
-                    _t('  queue empty', c: _dim)
-                  else
-                    _trow(sel: true, [
-                      _cell(_t(m.playing ? '>' : '=', c: _or), chars: 1),
-                      _cell(_t(m.artist ?? ''), flex: 26),
-                      _cell(_t(title, b: true), flex: 34),
-                      _cell(_t(m.album ?? '', c: _dim), flex: 26),
-                      _cell(
-                        _t(m.durationMs == null ? '' : mmss(m.durationMs!), c: _dim),
-                        chars: 5,
-                        right: true,
-                        last: true,
-                      ),
-                    ]),
-                  const Spacer(),
-                  Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _pane(
+                  'playlist',
+                  n: 1,
+                  tr: title == null ? 'stopped' : (m.playing ? 'playing' : 'paused'),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Flexible(flex: 3, child: _t(title ?? 'nothing playing', c: _or, b: true)),
-                            const SizedBox(width: 10),
-                            if (m.artist != null) Flexible(flex: 2, child: _t('by ${m.artist}', c: _dim)),
-                          ],
-                        ),
+                      if (title == null)
+                        _t('  queue empty', c: _dim)
+                      else
+                        _trow(sel: true, [
+                          _cell(_t(m.playing ? '>' : '=', c: _or), chars: 1),
+                          _cell(_t(m.artist ?? ''), flex: 26),
+                          _cell(_t(title, b: true), flex: 34),
+                          _cell(_t(m.album ?? '', c: _dim), flex: 26),
+                          _cell(
+                            _t(m.durationMs == null ? '' : mmss(m.durationMs!), c: _dim),
+                            chars: 5,
+                            right: true,
+                            last: true,
+                          ),
+                        ]),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Flexible(flex: 3, child: _t(title ?? 'nothing playing', c: _or, b: true)),
+                                const SizedBox(width: 10),
+                                if (m.artist != null) Flexible(flex: 2, child: _t('by ${m.artist}', c: _dim)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _t((m.source ?? '').toLowerCase(), c: _dim),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      _t((m.source ?? '').toLowerCase(), c: _dim),
+                      const SizedBox(height: 2),
+                      Ticker(
+                        period: const Duration(seconds: 1),
+                        builder: (context, now) {
+                          final pos = m.positionNow(now, skewMs: skew);
+                          final total = m.durationMs ?? 0;
+                          return _Prog(
+                            pos: pos,
+                            total: total,
+                            enabled: m.canSeek && total > 0,
+                            onSeek: (f) => act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          _Btn('prev', onTap: () => act(context, ref, 'media.prev')),
+                          const SizedBox(width: 4),
+                          _Btn(
+                            m.playing ? 'pause' : 'play',
+                            hot: true,
+                            onTap: () => act(context, ref, 'media.play_pause'),
+                          ),
+                          const SizedBox(width: 4),
+                          _Btn('next', onTap: () => act(context, ref, 'media.next')),
+                        ],
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Ticker(
-                    period: const Duration(seconds: 1),
-                    builder: (context, now) {
-                      final pos = m.positionNow(now, skewMs: skew);
-                      final total = m.durationMs ?? 0;
-                      return _Prog(
-                        pos: pos,
-                        total: total,
-                        enabled: m.canSeek && total > 0,
-                        onSeek: (f) => act(context, ref, 'media.seek', {'position_ms': (f * total).round()}),
-                      );
-                    },
+                ),
+                const SizedBox(height: _rowGap),
+                // cava in the pane below cmus: bars dance while music plays.
+                Expanded(
+                  child: _pane(
+                    'cava',
+                    n: 2,
+                    c: _gr,
+                    _Cava(playing: m.playing, seed: stableHash(title ?? '')),
                   ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      _Btn('prev', onTap: () => act(context, ref, 'media.prev')),
-                      const SizedBox(width: 4),
-                      _Btn(m.playing ? 'pause' : 'play', hot: true, onTap: () => act(context, ref, 'media.play_pause')),
-                      const SizedBox(width: 4),
-                      _Btn('next', onTap: () => act(context, ref, 'media.next')),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// cava's ASCII spectrum: bars two cells wide with a one-cell gap, built from
+/// eighth-block steps (▁▂▃▄▅▆▇█) and coloured by row like the meters. The bundled
+/// JetBrains Mono has no block glyphs, so the cells are drawn as rectangles on the
+/// character grid. There is no audio to analyse: the levels are smoothed pseudo-random
+/// "music" (a kick on the beat in the bass, snare in the mids, hats in the treble) at
+/// ~18 updates a second, rising quickly and falling with gravity like cava's. Bass bars
+/// move slower and reach higher. Paused, every bar falls to the floor and the ticker stops.
+class _Cava extends StatefulWidget {
+  const _Cava({required this.playing, required this.seed});
+  final bool playing;
+  final int seed;
+
+  @override
+  State<_Cava> createState() => _CavaState();
+}
+
+class _CavaState extends State<_Cava> with SingleTickerProviderStateMixin {
+  static const _max = 24, _fps = 18.0;
+  late final sched.Ticker _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  late final _rng = math.Random(widget.seed);
+  late final double _bpm = 92.0 + widget.seed % 44;
+  late final _phase = List<double>.generate(_max, (_) => _rng.nextDouble() * 2 * math.pi);
+  final _v = List<double>.filled(_max, 0), _fall = List<double>.filled(_max, 0);
+  final _noise = List<double>.filled(_max, .5);
+
+  /// Bars on screen (set by the painter from the pane's width).
+  int n = 20;
+  double _t = 0, _acc = 0;
+  Duration _last = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playing) _start();
+  }
+
+  @override
+  void didUpdateWidget(_Cava old) {
+    super.didUpdateWidget(old);
+    if (widget.playing) _start();
+    if (!widget.playing && _v.any((x) => x > 0)) _start(); // let the bars fall
+  }
+
+  void _start() {
+    if (_ticker.isActive) return;
+    _last = Duration.zero;
+    _acc = 1 / _fps; // first step on the first frame
+    _ticker.start();
+  }
+
+  void _tick(Duration e) {
+    _acc += (e - _last).inMicroseconds / 1e6;
+    _last = e;
+    if (_acc < 1 / _fps) return;
+    _step(math.min(_acc, .2));
+    _acc = 0;
+    _frame.value++;
+    if (!widget.playing && _v.every((x) => x == 0)) _ticker.stop();
+  }
+
+  void _step(double dt) {
+    _t += dt;
+    final on = widget.playing;
+    final beat = _t * _bpm / 60;
+    final kick = math.exp(-(beat % 1) * 5);
+    final snare = math.exp(-((beat / 2 + .5) % 1) * 9); // on beats 2 and 4
+    final hat = math.exp(-((beat * 2) % 1) * 10);
+    final cnt = n.clamp(2, _max);
+    for (var i = 0; i < cnt; i++) {
+      final f = i / (cnt - 1); // 0 = bass … 1 = treble
+      _noise[i] = (_noise[i] + (_rng.nextDouble() - .5) * (.16 + .34 * f) + (.5 - _noise[i]) * .12).clamp(0.0, 1.0);
+      var raw = 0.0;
+      if (on) {
+        final tilt = .74 - .36 * f + .1 * math.exp(-math.pow((f - .55) / .14, 2));
+        final swell = .55 + .45 * math.sin(_t * (.3 + .6 * f) + _phase[i]);
+        raw =
+            tilt * (.5 * swell + .42 * _noise[i]) +
+            .4 * kick * (1 - f / .28).clamp(0.0, 1.0) +
+            .2 * snare * math.exp(-math.pow((f - .45) / .2, 2)) +
+            .2 * hat * ((f - .62) / .38).clamp(0.0, 1.0);
+        raw = (raw * 1.35).clamp(0.0, 1.0); // cava's auto-sensitivity: use the height
+      }
+      if (raw >= _v[i]) {
+        _v[i] += (raw - _v[i]) * (.4 + .45 * f); // bass rises slower
+        _fall[i] = 0;
+      } else {
+        _fall[i] += (1.6 + 1.6 * f) * dt; // and falls slower
+        _v[i] = math.max(raw, _v[i] - _fall[i] * dt);
+      }
+      if (_v[i] < .004) _v[i] = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(painter: _CavaPainter(this, _cw()), size: Size.infinite),
+  );
+}
+
+class _CavaPainter extends CustomPainter {
+  _CavaPainter(this.s, this.cw) : super(repaint: s._frame);
+  final _CavaState s;
+  final double cw;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cols = (size.width / cw).floor();
+    final n = ((cols + 1) ~/ 3).clamp(2, _CavaState._max);
+    s.n = n;
+    final rows = math.max(1, (size.height / _lh).floor());
+    final hh = rows * _lh, y0 = size.height - hh;
+    final x0 = ((size.width - (n * 3 - 1) * cw) / 2).floorToDouble();
+    // cava's monstercat filter: a bar never stands far above its neighbours.
+    final v = List<double>.generate(n, (i) => s._v[i]);
+    for (var i = 1; i < n; i++) {
+      v[i] = math.max(v[i], v[i - 1] * .7);
+    }
+    for (var i = n - 2; i >= 0; i--) {
+      v[i] = math.max(v[i], v[i + 1] * .7);
+    }
+    final p = Paint()..isAntiAlias = false;
+    final floor = Paint()
+      ..isAntiAlias = false
+      ..color = _box;
+    for (var b = 0; b < n; b++) {
+      final x = x0 + b * 3 * cw;
+      final e = (v[b].clamp(0.0, 1.0) * rows * 8).round();
+      if (e == 0) {
+        // `▁` in the border colour: the floor the bars rest on.
+        canvas.drawRect(Rect.fromLTWH(x, y0 + hh - _lh / 8, 2 * cw, _lh / 8), floor);
+        continue;
+      }
+      for (var r = 0; r < rows; r++) {
+        final f = (e - r * 8).clamp(0, 8);
+        if (f == 0) break;
+        final band = (r + .5) / rows;
+        p.color = band < .5 ? _gr : (band < .8 ? _yl : _rs);
+        final h = f / 8 * _lh;
+        canvas.drawRect(Rect.fromLTWH(x, y0 + hh - r * _lh - h, 2 * cw, h), p);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CavaPainter o) => o.cw != cw;
 }
 
 /// cmus progress line `1:17 [=====>-----] 4:01`; tap / drag on the bar to seek.

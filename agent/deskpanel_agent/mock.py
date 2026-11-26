@@ -148,7 +148,8 @@ class MockProvider:
 
     def _pub_system(self) -> None:
         self._pub("system", SystemData(
-            cpu=Cpu(pct=round(self.cpu, 1), model="Ryzen 7 7800X3D 8-Core", cores=8, threads=16),
+            cpu=Cpu(pct=round(self.cpu, 1), model="Ryzen 7 7800X3D 8-Core", cores=8, threads=16,
+                    temp_c=round(46 + self.cpu * .25, 1)),
             gpu=Gpu(available=True, pct=round(self.gpu, 1), temp_c=round(self.gpu_temp),
                     model="GeForce RTX 4070", vram_used=int(self.vram * GB), vram_total=12 * GB),
             ram=Ram(used=int(self.ram * GB), total=32 * GB),

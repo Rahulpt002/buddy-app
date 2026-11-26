@@ -1,5 +1,7 @@
 // Concept 1 — Slate pages. Sizes follow deskpanel-concept-1-slate.html (CSS px = logical px).
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +15,7 @@ import '../pages/kit.dart';
 import '../widgets/bar_tip.dart';
 import '../widgets/anim.dart';
 import '../widgets/art.dart';
+import '../widgets/aurora.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import 'slate.dart';
@@ -561,6 +564,8 @@ class _Pc extends ConsumerWidget {
     const gb = 1024 * 1024 * 1024;
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
+    final f = ref.watch(settingsProvider.select((x) => x.fahrenheit));
+    final cpuTemp = s.cpu.tempC == null ? '' : ' • ${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
     Widget gauge(String name, double? pct, Color c, String sub) => Expanded(
       child: _card(
         pad: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -597,7 +602,7 @@ class _Pc extends ConsumerWidget {
               'CPU',
               s.cpu.pct,
               _t.cpu,
-              s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : 'CPU',
+              '${s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : 'CPU'}$cpuTemp',
             ),
             const SizedBox(width: _gap),
             gauge('GPU', g.available ? g.pct : null, _t.gpu, g.tempC != null ? '${g.tempC!.round()}°C' : (g.model ?? 'GPU')),
@@ -772,23 +777,35 @@ class _Internet extends ConsumerWidget {
         ),
         const SizedBox(height: _gap),
         Expanded(
-          child: _card(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _lb('Latency, last 2 minutes'),
-                    const Spacer(),
-                    Text('max 50 ms', style: _t.t(11, c: _t.faint)),
-                  ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 5,
+                child: _card(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: _lb('Latency, last 2 minutes')),
+                          Text('max 50 ms', style: _t.t(11, c: _t.faint)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: LineChart(
+                          grid: ChartGrid.mid,
+                          max: 50,
+                          series: [LineSeries(n.latencyHistory, _t.gpu, width: 1.8)],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Expanded(
-                  child: LineChart(grid: ChartGrid.mid, max: 50, series: [LineSeries(n.latencyHistory, _t.gpu, width: 1.8)]),
-                ),
-              ],
-            ),
+              ),
+              if (sys != null) ...[const SizedBox(width: _gap), Expanded(flex: 3, child: _live(sys))],
+            ],
           ),
         ),
         const SizedBox(height: _gap),
@@ -807,12 +824,11 @@ class _Internet extends ConsumerWidget {
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: _muted(
-                        '${st.running
+                        st.running
                             ? 'Testing now'
                             : last == null
                             ? 'Never tested'
-                            : 'Ping ${last.pingMs.round()} ms • tested ${ago(now.difference(last.at))}'}\n'
-                        'Now ↓ ${sys == null ? '—' : mbps(sys.downBps)}  ↑ ${sys == null ? '—' : mbps(sys.upBps)} Mbps',
+                            : 'Ping ${last.pingMs.round()} ms • tested ${ago(now.difference(last.at))}',
                         size: 12,
                         lines: 2,
                       ),
@@ -831,6 +847,55 @@ class _Internet extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// What the laptop is moving right now, with the last minute of both directions.
+  Widget _live(SystemData s) {
+    Widget now(String icon, double bps, Color c) {
+      final (v, u) = rate(bps);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          DpIcon(icon, size: 15, color: c),
+          const SizedBox(width: 4),
+          Text(v, style: _big(null, 22)),
+          const SizedBox(width: 4),
+          Text(u, style: _t.t(12, w: FontWeight.w600, c: _t.muted)),
+        ],
+      );
+    }
+
+    final top = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024);
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _lb('PC right now')),
+              Text('last minute', style: _t.t(11, c: _t.faint)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [now('down', s.downBps, _t.sky), const SizedBox(width: 16), now('up', s.upBps, _t.ram)],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: LineChart(
+              grid: ChartGrid.mid,
+              max: top * 1.15,
+              series: [LineSeries(s.upHistory, _t.ram, width: 1.6), LineSeries(s.downHistory, _t.sky, width: 1.8)],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1344,27 +1409,47 @@ class _Music extends ConsumerWidget {
     final art = topicData<MediaArt>(ref, 'media.art');
     final skew = ref.read(agentProvider.notifier).clockSkewMs;
     final title = m.title;
+    final b64 = art?.artId == m.artId ? art?.b64 : null;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
           LayoutBuilder(
             builder: (context, c) {
-              final side = math.min(c.maxHeight, 330.0);
-              return Container(
-                width: side,
-                height: side,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0xCC000000), blurRadius: 40, offset: Offset(0, 20), spreadRadius: -20),
-                  ],
+              // The halo rings the art in whatever room is left around it (the art gives up a
+              // little size when there isn't much, e.g. with the bottom bar).
+              final ring = ((c.maxHeight - 320) / 2).clamp(16.0, 26.0);
+              final side = math.min(c.maxHeight - 2 * ring, 320.0);
+              return Padding(
+                padding: EdgeInsets.only(right: 34 - ring),
+                child: SizedBox(
+                  width: side + 2 * ring,
+                  height: side + 2 * ring,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: ArtPalette(
+                          b64: b64,
+                          builder: (context, colors) => _Halo(
+                            colors: b64 == null ? _haloColors(title ?? 'Nothing playing') : colors,
+                            playing: m.playing,
+                            reach: ring,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: ring,
+                        top: ring,
+                        width: side,
+                        height: side,
+                        child: AlbumArt(title: title ?? 'Nothing playing', b64: b64, radius: 16),
+                      ),
+                    ],
+                  ),
                 ),
-                child: AlbumArt(title: title ?? 'Nothing playing', b64: art?.artId == m.artId ? art?.b64 : null, radius: 16),
               );
             },
           ),
-          const SizedBox(width: 30),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1426,6 +1511,157 @@ class _Music extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Halo colours for the generated art (no cover from the laptop): its sky, hills and sun.
+List<Color> _haloColors(String title) {
+  final h = hueFor(title);
+  Color c(double hue, double s, double l) => HSLColor.fromAHSL(1, hue % 360, s, l).toColor();
+  return [c(h, .62, .52), c(h + 28, .7, .6), c(44, .96, .7), c(h - 24, .58, .5)];
+}
+
+/// A soft ring of the cover's colours around the album art. While music plays the colours
+/// slowly turn round the art (a conic sweep) and the ring gently breathes; paused, it holds
+/// still and dims. Painted as a few stacked translucent rounded-rect strokes (no blur), in
+/// its own layer; frames run only while it moves.
+class _Halo extends StatefulWidget {
+  const _Halo({required this.colors, required this.playing, required this.reach});
+  final List<Color> colors;
+  final bool playing;
+
+  /// How far the halo reaches beyond the art (the art sits inset by this much).
+  final double reach;
+
+  @override
+  State<_Halo> createState() => _HaloState();
+}
+
+class _HaloState extends State<_Halo> with SingleTickerProviderStateMixin {
+  late final _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  Duration _last = Duration.zero;
+  late double _e = widget.playing ? 1 : 0; // 0 = paused look, 1 = playing look (eased)
+  double _turn = 0, _breath = 0; // rotation and breathing phases, in cycles
+  late List<Color> _from = widget.colors, _to = widget.colors;
+  double _mix = 1; // 0..1 from [_from] to [_to] when the cover changes
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playing) _ticker.start();
+  }
+
+  @override
+  void didUpdateWidget(_Halo old) {
+    super.didUpdateWidget(old);
+    if (!_same(old.colors, widget.colors)) {
+      // ArtPalette shows its default colours for a moment before the cover's: jump, don't fade.
+      _from = identical(old.colors, auroraDefault) ? widget.colors : _colors();
+      _to = widget.colors;
+      _mix = identical(old.colors, auroraDefault) ? 1 : 0;
+      _frame.value++;
+    }
+    if (widget.playing || _mix < 1 || _e > 0) _run();
+  }
+
+  bool _same(List<Color> a, List<Color> b) =>
+      a.length == b.length && [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
+
+  void _run() {
+    if (_ticker.isActive) return;
+    _last = Duration.zero;
+    _ticker.start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = math.min(.1, (elapsed - _last).inMicroseconds / 1e6);
+    _last = elapsed;
+    _e = (_e + (widget.playing ? dt : -dt) / .9).clamp(0.0, 1.0);
+    final k = Curves.easeInOut.transform(_e);
+    _turn += dt / 16 * k; // one slow turn every 16 s
+    _breath += dt / 4.6 * k; // one breath every ~4.6 s
+    _mix = math.min(1, _mix + dt / .9);
+    _frame.value++;
+    if (!widget.playing && _e == 0 && _mix >= 1) _ticker.stop();
+  }
+
+  List<Color> _colors() {
+    final f = Curves.easeInOut.transform(_mix);
+    return [
+      for (var i = 0; i < 4; i++)
+        Color.lerp(_from[i % _from.length], _to[i % _to.length], f)!,
+    ];
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      RepaintBoundary(child: CustomPaint(painter: _HaloPainter(this, _frame), child: const SizedBox.expand()));
+}
+
+class _HaloPainter extends CustomPainter {
+  _HaloPainter(this.s, Listenable frame) : super(repaint: frame);
+  final _HaloState s;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const artRadius = 16.0, rings = 16;
+    final reach = s.widget.reach;
+    final art = Rect.fromLTWH(reach, reach, size.width - 2 * reach, size.height - 2 * reach);
+    if (art.isEmpty) return;
+    final e = Curves.easeInOut.transform(s._e);
+    final breath = .5 - .5 * math.cos(s._breath * 2 * math.pi); // 0..1
+    // Paused: a dim, tight ring. Playing: brighter, and it swells and settles with each breath.
+    final spread = reach * (.6 + e * (.22 + .18 * breath));
+    final strength = .3 + e * (.45 + .25 * breath);
+    final colors = s._colors();
+    final c = art.center;
+    final a = s._turn * 2 * math.pi, cos = math.cos(a), sin = math.sin(a);
+    // Sweep rotated about the art's centre.
+    final turn = Float64List.fromList([
+      cos, sin, 0, 0, //
+      -sin, cos, 0, 0, //
+      0, 0, 1, 0, //
+      c.dx - cos * c.dx + sin * c.dy, c.dy - sin * c.dx - cos * c.dy, 0, 1,
+    ]);
+    ui.Gradient sweep(double alpha) => ui.Gradient.sweep(
+      c,
+      [for (final col in [...colors, colors.first]) col.withValues(alpha: alpha)],
+      const [0, .25, .5, .75, 1],
+      TileMode.clamp,
+      0,
+      2 * math.pi,
+      turn,
+    );
+    // Soft glow: rings from the outside in, each a little stronger (no blur needed).
+    final step = spread / rings;
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = step + .5;
+    for (var i = rings - 1; i >= 0; i--) {
+      final d = step * (i + .5);
+      final fall = 1 - (i + .5) / rings;
+      p.shader = sweep(strength * .5 * math.pow(fall, 1.7));
+      canvas.drawRRect(RRect.fromRectAndRadius(art.inflate(d), Radius.circular(artRadius + d)), p);
+    }
+    // A fine coloured rim hugging the art.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(art.inflate(.8), const Radius.circular(artRadius + .8)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..shader = sweep(math.min(1, strength * .8)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_HaloPainter old) => old.s != s;
 }
 
 /// Tap / drag to seek. Shows the drag position immediately, sends one seek on release.

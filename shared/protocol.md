@@ -108,16 +108,20 @@ first subscriber and stop 60 s after the last one leaves.
 ### `system`
 ```json
 {"status":"ok",
- "cpu":{"pct":30.0,"model":"Ryzen 7 7800X3D 8-Core","cores":8,"threads":16,"temp_c":null},
+ "cpu":{"pct":30.0,"model":"Ryzen 7 7800X3D 8-Core","cores":8,"threads":16,"temp_c":51.2},
  "gpu":{"available":true,"pct":48.0,"temp_c":52,"model":"GeForce RTX 4070",
         "vram_used":6657199308,"vram_total":12884901888,"vram_label":"VRAM"},
  "ram":{"used":19756849561,"total":34359738368},
  "disk":{"pct":58.0},
  "net":{"down_bps":1887436,"up_bps":225280},
- "history":{"interval_ms":1000,"cpu":[...60 floats],"gpu":[...60 floats|null]}}
+ "history":{"interval_ms":1000,"cpu":[...60 floats],"gpu":[...60 floats|null],
+            "down":[...60 bytes/s],"up":[...60 bytes/s]}}
 ```
 `gpu.available=false` → app shows "N/A". On Apple Silicon `vram_label` is `"GPU MEM"`: memory is
 unified, so used = GPU-resident memory and total = the GPU working-set limit.
+`cpu.temp_c`: Apple Silicon only, the average of the SoC's "PMU tdie" die sensors read through
+IOHIDEventSystemClient (no root, every 2 s); `null` on Intel Macs and other OSes.
+`net` is the laptop's current throughput (bytes/s); `history.down/up` the last 60 s of it.
 
 ### `network`
 ```json

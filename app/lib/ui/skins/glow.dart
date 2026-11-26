@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -100,13 +102,7 @@ class GlowSkin extends Skin {
             AnimatedOpacity(
               opacity: active ? 1 : 0,
               duration: const Duration(milliseconds: 200),
-              child: Container(
-                width: 4,
-                height: 4,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: hue(h), boxShadow: [
-                  BoxShadow(color: hue(h), blurRadius: 8, spreadRadius: 2),
-                ]),
-              ),
+              child: _LitDot(color: hue(h), size: 4, halo: 9, strength: .55),
             ),
             const SizedBox(height: 5),
             AnimatedDefaultTextStyle(
@@ -130,12 +126,7 @@ class GlowSkin extends Skin {
             Text(clock(now, h24: a.settings.clock24), style: t.t(12, w: FontWeight.w600)),
             const SizedBox(width: 10),
           ],
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-                shape: BoxShape.circle, color: dot, boxShadow: [BoxShadow(color: dot, blurRadius: 8)]),
-          ),
+          _LitDot(color: dot, size: 7, halo: 8, strength: .4),
           const SizedBox(width: 8),
           Text(a.conn.status == LinkStatus.demo ? 'Demo laptop' : s.text,
               style: t.t(12, w: FontWeight.w600, c: t.muted)),
@@ -158,11 +149,15 @@ class _GlowShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final offline = !a.conn.live;
     var g = GlowSkin.glowFor(a.current, offline);
+    var beat = false;
     if (!offline) {
       switch (a.current) {
         case PageId.music:
-          final title = topicData<MediaData>(ref, 'media')?.title;
+          final m = topicData<MediaData>(ref, 'media');
+          final title = m?.title;
           if (title != null) g = (h: hueFor(title), x: g.x, y: g.y, a: g.a);
+          // Music playing: the glow comes alive (a slow heartbeat, drifting on an orbit).
+          beat = m?.playing ?? false;
         case PageId.slack:
           // Takes the hue of the newest unread sender; settles to a calm, dim teal when caught up.
           final sl = topicData<SlackData>(ref, 'slack');
@@ -183,7 +178,7 @@ class _GlowShell extends ConsumerWidget {
       curve: Curves.ease,
       builder: (context, v, child) => Stack(fit: StackFit.expand, children: [
         const ColoredBox(color: GlowSkin.base),
-        CustomPaint(painter: _GlowPainter(v)),
+        _LiveGlow(glow: v, beat: beat),
         GlowHue(hue: v.h, child: child!),
       ]),
       child: Column(children: [
@@ -240,34 +235,165 @@ class _GlowTween extends Tween<_Glow> {
   }
 }
 
+/// The page glow. Still on every page; on the Music page while music plays it comes alive:
+/// it beats like a slow heart (lub-dub, every ~1.8 s) and its centre drifts on a slow
+/// orbit, easing in on play and settling back to the still glow on pause. Frames run only
+/// while it moves, and it repaints in its own layer.
+class _LiveGlow extends StatefulWidget {
+  const _LiveGlow({required this.glow, required this.beat});
+  final _Glow glow;
+  final bool beat;
+
+  @override
+  State<_LiveGlow> createState() => _LiveGlowState();
+}
+
+class _LiveGlowState extends State<_LiveGlow> with SingleTickerProviderStateMixin {
+  late final _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  Duration _last = Duration.zero;
+  double _e = 0; // 0 = still glow, 1 = fully alive (eased in/out)
+  double _beat = 0, _orbit = 0; // heartbeat and orbit phases, in cycles
+
+  static const period = 1.8; // seconds per heartbeat
+  static const orbitPeriod = 26.0; // seconds per lap of the drift
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.beat) _run();
+  }
+
+  @override
+  void didUpdateWidget(_LiveGlow old) {
+    super.didUpdateWidget(old);
+    if (widget.beat != old.beat) _run();
+  }
+
+  void _run() {
+    if (_ticker.isActive) return;
+    _last = Duration.zero;
+    _ticker.start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = math.min(.1, (elapsed - _last).inMicroseconds / 1e6);
+    _last = elapsed;
+    _e = (_e + (widget.beat ? dt : -dt) / 1.2).clamp(0.0, 1.0);
+    _beat += dt / period;
+    _orbit += dt / orbitPeriod * Curves.easeInOut.transform(_e);
+    _frame.value++;
+    if (!widget.beat && _e == 0) _ticker.stop();
+  }
+
+  /// One heartbeat, 0..~1: a quick thump that fades, a softer second one just after it.
+  double get pulse => _pulseAt(_beat);
+
+  /// The same beat a moment later (the far glow answers the near one).
+  double get pulseLate => _pulseAt(_beat - .07);
+
+  static double _pulseAt(double phase) {
+    final x = phase % 1;
+    double thump(double t) => t < 0 ? 0 : (t < .06 ? math.sin(t / .06 * math.pi / 2) : math.exp(-(t - .06) / .13));
+    return thump(x) + .55 * thump(x - .19);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: CustomPaint(painter: _GlowPainter(widget.glow, this, _frame), child: const SizedBox.expand()),
+      );
+}
+
 class _GlowPainter extends CustomPainter {
-  _GlowPainter(this.g);
+  _GlowPainter(this.g, this.live, Listenable frame) : super(repaint: frame);
   final _Glow g;
+  final _LiveGlowState live;
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
+    final e = Curves.easeInOut.transform(live._e);
+    // While it moves it's repainted every frame: no blur then (the gradient is soft anyway).
+    final soft = e == 0;
     void blob(Offset c, double rx, double ry, Color col) {
       canvas.save();
       canvas.translate(c.dx, c.dy);
       canvas.scale(1, ry / rx);
       final paint = Paint()
         ..shader = RadialGradient(colors: [col, col.withValues(alpha: 0)], stops: const [0, .72])
-            .createShader(Rect.fromCircle(center: Offset.zero, radius: rx))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+            .createShader(Rect.fromCircle(center: Offset.zero, radius: rx));
+      if (soft) paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
       canvas.drawCircle(Offset.zero, rx, paint);
       canvas.restore();
     }
 
+    final beat = e * live.pulse;
+    final o = live._orbit * 2 * math.pi;
+    // The centre drifts round a slow ellipse that starts at the still glow's centre and
+    // swings out behind the title; each beat brightens and swells the glow.
+    final x = g.x + e * .17 * (1 - math.cos(o)), y = g.y - e * .13 * math.sin(o);
+    final a = (g.a * (1 - e * .12 + .7 * beat)).clamp(0.0, 1.0);
+    final grow = 1 + .1 * beat;
     // radial-gradient(42% 60% at gx gy, hsl(h 85% 55% / ga), transparent 72%)
-    blob(Offset(w * g.x, h * g.y), w * .42 * 1.4, h * .60 * 1.4,
-        HSLColor.fromAHSL(g.a, g.h % 360, .85, .55).toColor());
+    blob(Offset(w * x, h * y), w * .42 * 1.4 * grow, h * .60 * 1.4 * grow,
+        HSLColor.fromAHSL(a, g.h % 360, .85, .55).toColor());
     // radial-gradient(60% 50% at 85% 110%, hsl(h+40 70% 45% / ga*.45), transparent 70%)
-    blob(Offset(w * .85, h * 1.1), w * .60 * 1.4, h * .50 * 1.4,
-        HSLColor.fromAHSL(g.a * .45, (g.h + 40) % 360, .70, .45).toColor());
+    // (drifts the other way, and answers each beat a little later and softer)
+    final x2 = .85 - e * .08 * (1 - math.cos(o)), y2 = 1.1 + e * .05 * math.sin(o);
+    final a2 = (g.a * .45 * (1 + .6 * e * live.pulseLate)).clamp(0.0, 1.0);
+    blob(Offset(w * x2, h * y2), w * .60 * 1.4, h * .50 * 1.4,
+        HSLColor.fromAHSL(a2, (g.h + 40) % 360, .70, .45).toColor());
   }
 
   @override
   bool shouldRepaint(_GlowPainter old) =>
-      old.g.h != g.h || old.g.a != g.a || old.g.x != g.x || old.g.y != g.y;
+      old.g.h != g.h || old.g.a != g.a || old.g.x != g.x || old.g.y != g.y || old.live != live;
+}
+
+/// A lit dot with a soft halo, drawn with a radial gradient: no blur, because the glow
+/// behind it may be repainted every frame (and blurs would be redone each time).
+class _LitDot extends StatelessWidget {
+  const _LitDot({required this.color, required this.size, required this.halo, required this.strength});
+  final Color color;
+  final double size, halo, strength;
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(size: Size.square(size), painter: _LitDotPainter(color, halo, strength));
+}
+
+class _LitDotPainter extends CustomPainter {
+  _LitDotPainter(this.color, this.halo, this.strength);
+  final Color color;
+  final double halo, strength;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero), r = size.shortestSide / 2, out = r + halo;
+    canvas.drawCircle(
+      c,
+      out,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            color.withValues(alpha: strength),
+            color.withValues(alpha: strength * .55),
+            color.withValues(alpha: strength * .16),
+            color.withValues(alpha: 0),
+          ],
+          stops: [0, r / out, (r + halo * .5) / out, 1],
+        ).createShader(Rect.fromCircle(center: c, radius: out)),
+    );
+    canvas.drawCircle(c, r, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_LitDotPainter old) => old.color != color || old.halo != halo || old.strength != strength;
 }

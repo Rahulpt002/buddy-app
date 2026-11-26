@@ -6,7 +6,7 @@
     "model": "Ryzen 7 7800X3D 8-Core",
     "cores": 8,
     "threads": 16,
-    "temp_c": null
+    "temp_c": 53.5
   },
   "gpu": {
     "available": true,

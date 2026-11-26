@@ -735,6 +735,8 @@ class _Pc extends ConsumerWidget {
     final (down, downU) = rate(s.downBps);
     final (up, upU) = rate(s.upBps);
     final vramPct = g.available && g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
+    final f = ref.watch(settingsProvider).fahrenheit;
+    final cpuTemp = s.cpu.tempC == null ? null : '${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
     return Column(children: [
       Expanded(
         flex: 115,
@@ -745,7 +747,7 @@ class _Pc extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Expanded(child: _Dial(value: s.cpu.pct, label: 'CPU')),
+              Expanded(child: _Dial(value: s.cpu.pct, label: 'CPU', sub: cpuTemp)),
               const SizedBox(width: _gap),
               Expanded(
                 child: _Dial(
@@ -906,11 +908,6 @@ class _Internet extends ConsumerWidget {
                             ('Tested ${ago(now.difference(last.at))}, ping ', null),
                             ('${last.pingMs.round()} ms', _g),
                           ]),
-                const SizedBox(height: 3),
-                _capRich([
-                  ('Now ', null),
-                  (sys == null ? '—' : '${mbps(sys.downBps)}/${mbps(sys.upBps)}', _g),
-                ]),
                 if (st.running) ...[
                   const SizedBox(height: 8),
                   _hbar((prog?.pct ?? 0) / 100),
@@ -930,10 +927,58 @@ class _Internet extends ConsumerWidget {
       const SizedBox(height: _gap),
       Expanded(
         flex: 100,
-        child: _fr('Latency trend, 2 min, 0 to 50 ms', _trend([(n.latencyHistory, _g)], hi: 50)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+            flex: 125,
+            child: _fr('Latency trend, 2 min, 0 to 50 ms', _trend([(n.latencyHistory, _g)], hi: 50)),
+          ),
+          if (sys != null) ...[
+            const SizedBox(width: _gap),
+            Expanded(flex: 100, child: _macNet(sys)),
+          ],
+        ]),
       ),
     ]);
   }
+}
+
+/// The Mac's own traffic right now: DN / UP readouts on the frame plate and the last
+/// minute as a trend (down green, up cyan) on a shared scale.
+Widget _macNet(SystemData s) {
+  final (down, downU) = rate(s.downBps);
+  final (up, upU) = rate(s.upBps);
+  final hi = maxOf([...s.downHistory, ...s.upHistory, s.downBps, s.upBps], floor: 64 * 1024) * 1.15;
+  final (top, topU) = rate(hi);
+  return _fr(
+    [_tg('Mac net '), _tb('DN', _g), _tg(' '), _tb('UP'), _tg(', 60 s')],
+    right: Container(
+      color: CockpitSkin.plate,
+      padding: const EdgeInsets.symmetric(horizontal: 5),
+      child: Text.rich(
+        TextSpan(children: [
+          TextSpan(text: '$down ${downU.toUpperCase()} DN', style: _mono(11, c: _g, b: true, h: 13 / 11)),
+          TextSpan(text: '   $up ${upU.toUpperCase()} UP', style: _mono(11, c: _c, b: true, h: 13 / 11)),
+        ]),
+        maxLines: 1,
+        softWrap: false,
+      ),
+    ),
+    s.downHistory.length < 2
+        ? Center(child: _cap('Collecting…'))
+        : Stack(children: [
+            Positioned.fill(child: _trend([(s.upHistory, _c), (s.downHistory, _g)], hi: hi)),
+            // Full-scale label in the corner, like an MFD trend.
+            Positioned(
+              left: 4,
+              top: 4,
+              child: Container(
+                color: _bg,
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: _cap('$top ${topU.toUpperCase()}'),
+              ),
+            ),
+          ]),
+  );
 }
 
 Widget _hbar(double p, {Color c = _c}) => SizedBox(
@@ -1366,7 +1411,12 @@ class _Music extends ConsumerWidget {
             const SizedBox(height: 6),
             Text(m.artist ?? '', style: _sans(15, c: _g), maxLines: 1, overflow: TextOverflow.ellipsis),
             Text(m.album ?? '', style: _sans(12, c: _gy), maxLines: 1, overflow: TextOverflow.ellipsis),
-            const Spacer(),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
+                child: _Scope(playing: m.playing),
+              ),
+            ),
             Ticker(
               period: const Duration(seconds: 1),
               builder: (context, now) {
@@ -1409,6 +1459,233 @@ class _Music extends ConsumerWidget {
       ),
     ]);
   }
+}
+
+// ------------------------------------------------------------------ audio scope
+
+/// Smooth value noise in -1..1 (no audio data reaches the phone, so the scope's signal is
+/// made up: a few drifting partials and some grit, pumped by a beat).
+double _vnoise(double x) {
+  double h(double i) {
+    final s = math.sin(i * 127.1 + 311.7) * 43758.5453;
+    return (s - s.floorToDouble()) * 2 - 1;
+  }
+
+  final i = x.floorToDouble(), f = x - i;
+  final u = f * f * (3 - 2 * f);
+  return h(i) * (1 - u) + h(i + 1) * u;
+}
+
+/// Loudness at time [t]: a kick on every beat (112 bpm) over a slow phrase-level swell.
+double _beatEnv(double t) {
+  final ph = (t * 112 / 60) % 1;
+  final kick = math.exp(-ph * 4);
+  return (.55 + .45 * kick) * (.78 + .22 * _vnoise(t * .35 + 40));
+}
+
+/// The trace at screen position [x] (0..1) and time [t], -1..1 (soft-clipped like a hot
+/// input, so beats fill the screen without spiking off it).
+double _wave(double x, double t, double env) {
+  const tau = 2 * math.pi;
+  var y = .38 * (.7 + .3 * _vnoise(t * .9 + 1)) * math.sin(tau * 2.2 * x + t * 7.1);
+  y += .26 * (.55 + .45 * _vnoise(t * 1.3 + 7)) * math.sin(tau * 4.7 * x - t * 11.3 + 1.3);
+  y += .18 * (.5 + .5 * _vnoise(t * 1.9 + 13)) * math.sin(tau * 8.3 * x + t * 17.9 + 2.1);
+  y += .11 * (.5 + .5 * _vnoise(t * 2.7 + 21)) * math.sin(tau * 15.1 * x - t * 23);
+  y += .09 * _vnoise(x * 70 + t * 40);
+  final e = math.exp(4.8 * y * env); // tanh(2.4 · y · env)
+  return (e - 1) / (e + 1);
+}
+
+/// Audio oscilloscope in a framed display: a phosphor-green trace with a short fading
+/// trail (earlier sweeps redrawn fainter, no blur), graticule and a SIG readout. Runs on a
+/// Ticker only while music plays (it pauses itself off screen); on pause the signal eases
+/// down to a flat line and the ticker stops.
+class _Scope extends StatefulWidget {
+  const _Scope({required this.playing});
+  final bool playing;
+  @override
+  State<_Scope> createState() => _ScopeState();
+}
+
+class _ScopeState extends State<_Scope> with SingleTickerProviderStateMixin {
+  late final _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0); // repaint trigger
+  final _sig = ValueNotifier<String?>(null); // readout, refreshed 4× a second
+  double _t = 0; // signal time, s (advances only while running)
+  double _level = 0; // 0 = flat line … 1 = full signal
+  double _db = -60, _sigAt = -1;
+  Duration _prev = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_Scope old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.playing && !_ticker.isActive) {
+      _prev = Duration.zero;
+      _ticker.start();
+    }
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _prev).inMicroseconds / 1e6).clamp(0.0, .1);
+    _prev = elapsed;
+    _t += dt;
+    final target = widget.playing ? 1.0 : 0.0;
+    _level += (target - _level) * (1 - math.exp(-dt * 6));
+    if ((target - _level).abs() < .01) _level = target;
+    // Readout: a smoothed level in dBFS, updated at instrument pace (not every frame).
+    final db = 20 * math.log(math.max(1e-3, _level * _beatEnv(_t) * .6)) / math.ln10;
+    _db += (db - _db) * math.min(1, dt * 8);
+    if (_t - _sigAt >= .25) {
+      _sigAt = _t;
+      _sig.value = _level < .05 ? null : '${_db.toStringAsFixed(1)} dB';
+    }
+    _frame.value++;
+    if (!widget.playing && _level == 0) {
+      _sig.value = null;
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    _sig.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget plate(Widget child) => Container(
+          color: _ScopeGrid.screen,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          child: child,
+        );
+    return Stack(children: [
+      // The glass and graticule never change: their own layer, recorded once.
+      const Positioned.fill(child: RepaintBoundary(child: CustomPaint(painter: _ScopeGrid()))),
+      Positioned.fill(
+        child: RepaintBoundary(child: CustomPaint(painter: _ScopeTrace(this, _frame), isComplex: true, willChange: true)),
+      ),
+      Positioned(
+        left: 6,
+        top: 5,
+        child: plate(ValueListenableBuilder<String?>(
+          valueListenable: _sig,
+          builder: (context, v, _) => _capRich([('Sig ', null), (v ?? '—', v == null ? _gy : _g)]),
+        )),
+      ),
+      Positioned(right: 6, top: 5, child: plate(_cap('CH1  L+R', c: _c))),
+    ]);
+  }
+}
+
+/// Scope glass, 10 × 4 dashed graticule, a solid centre cross with fine ticks, bezel line.
+class _ScopeGrid extends CustomPainter {
+  const _ScopeGrid();
+
+  /// The display glass: a touch greener than the panel, like a phosphor tube face.
+  static const screen = Color(0xFF040B09);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    if (w <= 0 || h <= 0) return;
+    final box = Offset.zero & size;
+    canvas.drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(2)), Paint()..color = screen);
+    // All dashes in one path (one draw), likewise the axes and their ticks.
+    final dashes = Path();
+    void dash(Offset a, Offset b) {
+      final len = (b - a).distance;
+      final d = (b - a) / len;
+      for (double t = 0; t < len; t += 6) {
+        final p = a + d * t, q = a + d * math.min(t + 2, len);
+        dashes
+          ..moveTo(p.dx, p.dy)
+          ..lineTo(q.dx, q.dy);
+      }
+    }
+
+    for (var i = 1; i < 10; i++) {
+      if (i != 5) dash(Offset(w * i / 10, 0), Offset(w * i / 10, h));
+    }
+    dash(Offset(0, h / 4), Offset(w, h / 4));
+    dash(Offset(0, h * 3 / 4), Offset(w, h * 3 / 4));
+    canvas.drawPath(dashes, _stroke(_frc, 1));
+    final axes = Path()
+      ..moveTo(0, h / 2)
+      ..lineTo(w, h / 2)
+      ..moveTo(w / 2, 0)
+      ..lineTo(w / 2, h);
+    for (var i = 1; i < 50; i++) {
+      axes
+        ..moveTo(w * i / 50, h / 2 - 2)
+        ..lineTo(w * i / 50, h / 2 + 2);
+    }
+    for (var i = 1; i < 20; i++) {
+      axes
+        ..moveTo(w / 2 - 2, h * i / 20)
+        ..lineTo(w / 2 + 2, h * i / 20);
+    }
+    canvas.drawPath(axes, _stroke(const Color(0xFF34414F), 1));
+    canvas.drawRRect(RRect.fromRectAndRadius(box.deflate(.5), const Radius.circular(2)), _stroke(_frc, 1));
+  }
+
+  @override
+  bool shouldRepaint(_ScopeGrid o) => false;
+}
+
+/// The trace: the current sweep with a flat halo under it (no blur) and earlier sweeps
+/// redrawn fainter for the phosphor trail. Repaints every tick while running.
+class _ScopeTrace extends CustomPainter {
+  _ScopeTrace(this.s, Listenable frame) : super(repaint: frame);
+  final _ScopeState s;
+
+  /// Earlier sweeps for the phosphor trail (seconds back, alpha).
+  static const _trail = [(.16, .07), (.12, .12), (.08, .2), (.04, .36)];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    if (w <= 0 || h <= 0) return;
+    final n = math.max(24, (w / 3).round());
+    final amp = h * .46 * s._level;
+    Path trace(double t) {
+      final env = _beatEnv(t);
+      final p = Path();
+      for (var i = 0; i <= n; i++) {
+        final x = i / n;
+        final y = h / 2 - (amp == 0 ? 0 : amp * _wave(x, t, env));
+        i == 0 ? p.moveTo(0, y) : p.lineTo(x * w, y);
+      }
+      return p;
+    }
+
+    canvas.save();
+    canvas.clipRect((Offset.zero & size).deflate(1));
+    if (amp > 0) {
+      for (final (back, a) in _trail) {
+        canvas.drawPath(trace(s._t - back), _stroke(_g.withValues(alpha: a), 1.4)..strokeJoin = StrokeJoin.round);
+      }
+    }
+    final now = trace(s._t);
+    canvas.drawPath(now, _stroke(_g.withValues(alpha: .16), 4.5)..strokeJoin = StrokeJoin.round);
+    canvas.drawPath(now, _stroke(_g, 1.6)..strokeJoin = StrokeJoin.round);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_ScopeTrace o) => o.s != s;
 }
 
 /// Tick-scale seek tape with a cyan pointer. Tap / drag to seek (one seek on release).

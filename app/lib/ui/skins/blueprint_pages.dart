@@ -1,6 +1,7 @@
 // Concept 7 — Blueprint pages. Sizes follow deskpanel-concept-7-blueprint.html (CSS px = logical px).
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart' as sched;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,7 +12,6 @@ import '../fmt.dart';
 import '../icons.dart';
 import '../pages/kit.dart';
 import '../widgets/anim.dart';
-import '../widgets/art.dart';
 import '../widgets/common.dart';
 import 'blueprint.dart';
 
@@ -596,20 +596,7 @@ Widget _bub(String icon, VoidCallback? onTap, {double size = 46, bool main = fal
   ),
 );
 
-/// Line-art frame with drafting centre marks (`.frame`).
-class _Frame extends StatelessWidget {
-  const _Frame({required this.child});
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => CustomPaint(
-    foregroundPainter: const _CentreMarks(),
-    child: Container(
-      decoration: BoxDecoration(border: Border.all(color: _ln, width: 1.5)),
-      child: child,
-    ),
-  );
-}
-
+/// Drafting centre marks through the middle of a frame.
 class _CentreMarks extends CustomPainter {
   const _CentreMarks();
   @override
@@ -624,46 +611,6 @@ class _CentreMarks extends CustomPainter {
   bool shouldRepaint(_CentreMarks o) => false;
 }
 
-/// Line drawing of the cover scene: sun and hills in outline, with construction lines.
-class _LineArt extends CustomPainter {
-  const _LineArt(this.seed, this.vw);
-  final int seed;
-  final double vw;
-
-  @override
-  void paint(Canvas c, Size size) {
-    final k = vw / 100;
-    final sc = math.min(size.width / vw, size.height / 100);
-    c.save();
-    c.translate((size.width - vw * sc) / 2, (size.height - 100 * sc) / 2);
-    c.scale(sc);
-    final sx = (30 + (seed * 37) % 40) * k, sy = 34.0 + (seed * 13) % 10;
-    c.drawCircle(Offset(sx, sy), 15, _stroke(_ln, 1.2));
-    c.drawCircle(Offset(sx, sy), 1.2, Paint()..color = _cy);
-    final con = _stroke(_cy, .5);
-    _line(c, Offset(sx - 22, sy), Offset(sx + 22, sy), con, const [4, 2, 1, 2]);
-    _line(c, Offset(sx, sy - 22), Offset(sx, sy + 22), con, const [4, 2, 1, 2]);
-    _text(c, 'R15', sx + 12, sy - 13, _m(4.5, c: _cy));
-    // Hills: stretched horizontally, strokes kept at 1.2 screen px.
-    final ns = 1.2 / sc;
-    final h1 = Path()
-      ..moveTo(0, 64)
-      ..cubicTo(22 * k, 55, 42 * k, 70, 66 * k, 60)
-      ..cubicTo(90 * k, 50, 100 * k, 56, 100 * k, 56);
-    final h2 = Path()
-      ..moveTo(0, 78)
-      ..cubicTo(28 * k, 70, 58 * k, 86, 100 * k, 72);
-    c.drawPath(h1, _stroke(_ln, ns));
-    c.drawPath(h2, _stroke(_ln, ns));
-    c.drawLine(Offset(0, 92), Offset(100 * k, 92), _stroke(_ln2, .8 / sc));
-    c.restore();
-  }
-
-  @override
-  bool shouldRepaint(_LineArt o) => o.seed != seed || o.vw != vw;
-}
-
-int _seed(String s) => stableHash(s) % 7 + 1;
 
 // ------------------------------------------------------------------ Home
 
@@ -907,10 +854,12 @@ class _Pc extends ConsumerWidget {
     const gb = 1024 * 1024 * 1024;
     final ramPct = s.ramTotal == 0 ? 0.0 : s.ramUsed / s.ramTotal * 100;
     final vramPct = g.vramUsed != null && (g.vramTotal ?? 0) > 0 ? g.vramUsed! / g.vramTotal! * 100 : null;
+    final f = ref.watch(settingsProvider).fahrenheit;
+    final cpuTemp = s.cpu.tempC == null ? null : '${temp(s.cpu.tempC!, f)}°${f ? 'F' : 'C'}';
     final rows = <(String, String, double?)>[
       (
         'Processor',
-        s.cpu.cores != null ? '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads' : '',
+        [if (s.cpu.cores != null) '${s.cpu.cores} cores, ${s.cpu.threads ?? s.cpu.cores} threads', ?cpuTemp].join(', '),
         s.cpu.pct,
       ),
       (
@@ -1083,8 +1032,15 @@ class _Net extends ConsumerWidget {
                           _td('Used today / month'),
                           _td('${bytes(n.usageToday)} / ${bytes(n.usageMonth, digits: 0)}', mono: true),
                         ],
+                        // What this Mac is moving right now (the system topic).
+                        if (sys != null)
+                          [
+                            _td('Mac now, down / up'),
+                            _td('${_rate(sys.downBps)} / ${_rate(sys.upBps)}', mono: true),
+                          ],
                       ],
                       right: const {1},
+                      padV: 4,
                     ),
                   ]),
                   Positioned(right: 0, top: 0, child: tabs),
@@ -1128,19 +1084,43 @@ class _Net extends ConsumerWidget {
                         ? 'Testing now'
                         : last == null
                         ? 'Never tested'
-                        : 'Tested ${ago(now.difference(last.at))}, ping ${last.pingMs.round()} ms'}. '
-                    'Now ${sys == null ? '—' : mbps(sys.downBps)} / ${sys == null ? '—' : mbps(sys.upBps)} Mbps.',
-                    lines: 2,
+                        : 'Tested ${ago(now.difference(last.at))}, ping ${last.pingMs.round()} ms'}.',
                   ),
                   if (st.running) ...[const SizedBox(height: 10), _Dim((prog?.pct ?? 0) / 100, 'measuring')],
-                  const Spacer(),
-                  _Btn(
-                    label: st.running ? 'Testing…' : 'Run test',
-                    onTap: st.running
-                        ? null
-                        : () => act(context, ref, 'speedtest.run', const {}, null, null, const Duration(seconds: 90)),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 5),
+                          child: _Btn(
+                            label: st.running ? 'Testing…' : 'Run test',
+                            onTap: st.running
+                                ? null
+                                : () => act(
+                                    context,
+                                    ref,
+                                    'speedtest.run',
+                                    const {},
+                                    null,
+                                    null,
+                                    const Duration(seconds: 90),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 22),
+                        // This Mac's traffic over the last minute, beside the test.
+                        if (sys != null && sys.downHistory.length > 1)
+                          Expanded(
+                            child: CustomPaint(
+                              painter: _RateChart(sys.downHistory, sys.upHistory),
+                              size: Size.infinite,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 5),
                 ]),
               ),
             ],
@@ -1149,6 +1129,47 @@ class _Net extends ConsumerWidget {
       ],
     );
   }
+}
+
+String _rate(double bps) {
+  final (v, u) = rate(bps);
+  return '$v $u';
+}
+
+/// This Mac's throughput over the last 60 s: down a solid line, up dashed, with a
+/// dash-dot construction line at the peak.
+class _RateChart extends CustomPainter {
+  _RateChart(this.down, this.up);
+  final List<double> down, up;
+
+  @override
+  void paint(Canvas c, Size s) {
+    const top = 15.0, b = 15.0;
+    final w = s.width, h = s.height, ph = h - top - b;
+    if (ph < 10 || w < 60) return;
+    final peak = maxOf([...down, ...up], floor: 64 * 1024);
+    double y(double v) => top + ph * (1 - (v / peak).clamp(0.0, 1.0));
+    final ax = _stroke(_ln, 1.2);
+    c.drawLine(Offset(0, top - 3), Offset(0, h - b), ax);
+    c.drawLine(Offset(0, h - b), Offset(w, h - b), ax);
+    _line(c, Offset(0, top), Offset(w, top), _stroke(_ln3), const [6, 3, 1, 3]);
+    final t = _stroke(_ln);
+    c.drawLine(Offset(w - .5, h - b), Offset(w - .5, h - b + 4), t);
+    _text(c, '-60 s', 0, h - 2, _m(9, c: _ln2));
+    _text(c, 'now', w, h - 2, _m(9, c: _ln2), align: TextAlign.right);
+    _text(c, 'this Mac, peak ${_rate(peak)}', 4, top - 4, _m(9, c: _ln2), bg: _bp);
+    _text(c, 'down ———  up - - -', w, top - 4, _m(9), align: TextAlign.right, bg: _bp);
+    if (up.length > 1) {
+      final p = _smooth(up, (i) => i * w / (up.length - 1), y);
+      c.drawPath(_dash(p, const [5, 3]), _stroke(_cy, 1.4));
+    }
+    if (down.length > 1) {
+      c.drawPath(_smooth(down, (i) => i * w / (down.length - 1), y), _stroke(_ln, 1.6));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RateChart o) => o.down != down || o.up != up;
 }
 
 class _LatChart extends CustomPainter {
@@ -1590,18 +1611,13 @@ class _Music extends ConsumerWidget {
     final title = m.title;
     return Row(
       children: [
+        // Detail A: the tape transport, turning while the music plays.
         LayoutBuilder(
           builder: (context, c) {
             final side = math.min(c.maxHeight * .92, 320.0);
             return Padding(
               padding: const EdgeInsets.all(8),
-              child: SizedBox(
-                width: side,
-                height: side,
-                child: _Frame(
-                  child: CustomPaint(painter: _LineArt(_seed(title ?? 'DeskPanel'), 100), size: Size.infinite),
-                ),
-              ),
+              child: SizedBox(width: side, height: side, child: _Deck(m: m, skew: skew)),
             );
           },
         ),
@@ -1664,6 +1680,337 @@ class _Music extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// "Detail A, tape transport": a reel-to-reel deck as a technical drawing. The supply
+/// pack shrinks and the take-up pack grows with the song. While music plays the reels
+/// turn at constant tape speed (so the emptier reel spins faster), spinning up and
+/// coasting to a stop like a real transport; paused, nothing ticks.
+///
+/// Three layers: the drawing under the reels and its annotations over them repaint once
+/// a second (the packs grow); only the spokes between them repaint per frame.
+class _Deck extends StatefulWidget {
+  const _Deck({required this.m, required this.skew});
+  final MediaData m;
+  final int skew;
+
+  @override
+  State<_Deck> createState() => _DeckState();
+}
+
+class _DeckState extends State<_Deck> with SingleTickerProviderStateMixin {
+  late final sched.Ticker _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  double _supplyAngle = 0, _takeUpAngle = 0;
+  double _speed = 0; // transport speed, 0 (stopped) to 1 (playing)
+  Duration _last = Duration.zero, _painted = Duration.zero;
+
+  /// Tape speed in drawing units (fractions of the sheet) per second: an empty hub
+  /// turns about once a second, a full pack about a third of that.
+  static const _tape = _DeckGeo.rMin * 2 * math.pi * .9;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.m.playing) _start();
+  }
+
+  @override
+  void didUpdateWidget(_Deck old) {
+    super.didUpdateWidget(old);
+    if (widget.m.playing) _start();
+  }
+
+  void _start() {
+    if (_ticker.isActive) return;
+    _last = _painted = Duration.zero;
+    _ticker.start();
+  }
+
+  double _progress([DateTime? now]) {
+    final m = widget.m;
+    final total = m.durationMs ?? 0;
+    if (total <= 0) return m.title == null ? 0 : .3;
+    return (m.positionNow(now ?? DateTime.now(), skewMs: widget.skew) / total).clamp(0.0, 1.0);
+  }
+
+  void _tick(Duration e) {
+    final dt = ((e - _last).inMicroseconds / 1e6).clamp(0.0, .1);
+    _last = e;
+    final target = widget.m.playing ? 1.0 : 0.0;
+    // Spin up in about a second; coast down a little slower.
+    _speed += (target - _speed) * (1 - math.exp(-dt / (target > _speed ? .35 : .55)));
+    final stopping = target == 0 && _speed < .004;
+    if (stopping) _speed = 0;
+    final g = _DeckGeo.radii(_progress());
+    // Both reels turn anticlockwise in play (y points down, so the angle falls).
+    _supplyAngle -= _speed * _tape / g.$1 * dt;
+    _takeUpAngle -= _speed * _tape / g.$2 * dt;
+    // At most ~60 repaints a second: smooth enough, half the work on a 120 Hz panel.
+    if (stopping || e - _painted >= const Duration(milliseconds: 15)) {
+      _painted = e;
+      _frame.value++;
+    }
+    if (stopping) _ticker.stop();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(border: Border.all(color: _ln, width: 1.5)),
+    child: Ticker(
+      period: const Duration(seconds: 1),
+      builder: (context, now) {
+        final p = _progress(now);
+        return CustomPaint(
+          painter: _DeckUnder(p),
+          foregroundPainter: _DeckOver(p),
+          child: RepaintBoundary(
+            child: CustomPaint(painter: _DeckSpokes(this), size: Size.infinite),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// Deck geometry in fractions of the sheet's side [s] (a 7-inch reel ≈ .19 s radius).
+class _DeckGeo {
+  _DeckGeo(Size size, double p)
+    : s = math.min(size.width, size.height),
+      dx = (size.width - math.min(size.width, size.height)) / 2 {
+    final (a, b) = radii(p);
+    r1 = a * s;
+    r2 = b * s;
+  }
+
+  static const rFlange = .19, rRim = .178, rMax = .17, rHub = .06, rMin = .066, rSpindle = .02;
+
+  final double s, dx;
+  late final double r1, r2; // supply and take-up pack radii, px
+
+  /// Pack radii (fractions) at progress [p]: tape length goes with pack area.
+  static (double, double) radii(double p) {
+    const area = rMax * rMax - rMin * rMin;
+    final q = p.clamp(0.0, 1.0);
+    return (math.sqrt(rMax * rMax - q * area), math.sqrt(rMin * rMin + q * area));
+  }
+
+  Offset at(double x, double y) => Offset(dx + x * s, y * s);
+  Offset get c1 => at(.27, .385);
+  Offset get c2 => at(.73, .385);
+  double get flange => rFlange * s;
+  double get rim => rRim * s;
+  double get hub => rHub * s;
+  double get guideR => .022 * s;
+  Offset get g1 => at(.1, .76);
+  Offset get g2 => at(.9, .76);
+
+  /// The tape's straight run along the bottom, under the head.
+  double get tapeY => g1.dy + guideR;
+  Rect get head => Rect.fromLTWH(dx + .4 * s, tapeY, .12 * s, .062 * s);
+  double get capX => dx + .665 * s;
+}
+
+/// Outer tangent of circles (a, ra) → (b, rb); [side] picks which of the two.
+(Offset, Offset) _tangent(Offset a, double ra, Offset b, double rb, double side) {
+  final d = b - a;
+  final dist = d.distance;
+  final e = d / dist;
+  final cosT = ((ra - rb) / dist).clamp(-1.0, 1.0);
+  final sinT = math.sqrt(1 - cosT * cosT);
+  final n = e * cosT + Offset(-e.dy, e.dx) * (sinT * side);
+  return (a + n * ra, b + n * rb);
+}
+
+/// Filled arrowhead with its tip at [tip], pointing away from [from].
+void _arrow(Canvas c, Offset from, Offset tip, Color col, {double len = 7, double half = 3}) {
+  final d = tip - from;
+  final dist = d.distance;
+  if (dist == 0) return;
+  final e = d / dist, n = Offset(-e.dy, e.dx);
+  final base = tip - e * len;
+  c.drawPath(
+    Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(base.dx + n.dx * half, base.dy + n.dy * half)
+      ..lineTo(base.dx - n.dx * half, base.dy - n.dy * half)
+      ..close(),
+    Paint()..color = col,
+  );
+}
+
+/// The deck under the spokes: centre lines, hatched tape packs, flanges, the tape path
+/// over the guides, head, capstan and pinch roller.
+class _DeckUnder extends CustomPainter {
+  const _DeckUnder(this.p);
+  final double p;
+
+  @override
+  void paint(Canvas c, Size size) {
+    if (size.isEmpty) return;
+    final g = _DeckGeo(size, p);
+    final ln = _stroke(_ln, 1.2);
+    // Centre lines through each reel.
+    final cl = _stroke(_cy.withValues(alpha: .55), .8);
+    const pat = [8.0, 3.0, 2.0, 3.0];
+    for (final o in [g.c1, g.c2]) {
+      final e = g.flange + 7;
+      _line(c, Offset(o.dx - e, o.dy), Offset(o.dx + e, o.dy), cl, pat);
+      _line(c, Offset(o.dx, o.dy - e), Offset(o.dx, o.dy + e), cl, pat);
+    }
+    // Reels: hatched pack between hub and pack edge, flange and rim, hub and spindle.
+    for (final (o, r) in [(g.c1, g.r1), (g.c2, g.r2)]) {
+      final pack = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addOval(Rect.fromCircle(center: o, radius: r))
+        ..addOval(Rect.fromCircle(center: o, radius: g.hub));
+      _hatch(c, pack, _ln3, gap: 3.5);
+      c.drawCircle(o, r, ln);
+      c.drawCircle(o, g.flange, _stroke(_ln, 1.5));
+      c.drawCircle(o, g.rim, _stroke(_ln2, .8));
+      c.drawCircle(o, g.hub, ln);
+      c.drawCircle(o, _DeckGeo.rSpindle * g.s, _stroke(_ln, 1));
+    }
+    // Tape path: supply pack → left guide → under the head and capstan → right guide →
+    // take-up pack.
+    final tape = _stroke(_ln, 1.4);
+    final (a1, b1) = _tangent(g.c1, g.r1, g.g1, g.guideR, 1);
+    final (a2, b2) = _tangent(g.c2, g.r2, g.g2, g.guideR, -1);
+    c.drawLine(a1, b1, tape);
+    c.drawLine(a2, b2, tape);
+    c.drawLine(Offset(g.g1.dx, g.tapeY), Offset(g.g2.dx, g.tapeY), tape);
+    for (final (o, t) in [(g.g1, b1), (g.g2, b2)]) {
+      c.drawCircle(o, g.guideR, _stroke(_ln, 1));
+      c.drawCircle(o, 1.3, Paint()..color = _cy);
+      // Wrap: from the bottom of the guide round to where the tape leaves it.
+      final ang = math.atan2(t.dy - o.dy, t.dx - o.dx);
+      final rect = Rect.fromCircle(center: o, radius: g.guideR);
+      if (o == g.g1) {
+        c.drawArc(rect, math.pi / 2, (ang < 0 ? ang + 2 * math.pi : ang) - math.pi / 2, false, tape);
+      } else {
+        c.drawArc(rect, ang, math.pi / 2 - ang, false, tape);
+      }
+    }
+    // Head: a hatched block with its gap on the tape.
+    final h = g.head;
+    _hatch(c, Path()..addRect(h), _ln2, gap: 4, back: false);
+    c.drawRect(h, _stroke(_ln, 1.4));
+    c.drawLine(Offset(h.center.dx, h.top), Offset(h.center.dx, h.top + 6), _stroke(_cy, 1.4));
+    // Capstan over the tape, pinch roller under it.
+    final cr = .012 * g.s, pr = .03 * g.s;
+    c.drawCircle(Offset(g.capX, g.tapeY - cr), cr, ln);
+    c.drawCircle(Offset(g.capX, g.tapeY - cr), 1.3, Paint()..color = _cy);
+    c.drawCircle(Offset(g.capX, g.tapeY + pr), pr, ln);
+    c.drawCircle(Offset(g.capX, g.tapeY + pr), pr * .35, _stroke(_ln2, .8));
+  }
+
+  @override
+  bool shouldRepaint(_DeckUnder o) => o.p != p;
+}
+
+/// The reels' three spokes and spindle keys, per frame. Each spoke is filled with the
+/// paper colour so it sits in front of the hatched pack.
+class _DeckSpokes extends CustomPainter {
+  _DeckSpokes(this.s) : super(repaint: s._frame);
+  final _DeckState s;
+
+  @override
+  void paint(Canvas c, Size size) {
+    if (size.isEmpty) return;
+    final g = _DeckGeo(size, 0);
+    final fill = Paint()..color = _bp;
+    final edge = _stroke(_ln, 1.2);
+    final key = _stroke(_ln, 1.4);
+    for (final (o, a) in [(g.c1, s._supplyAngle), (g.c2, s._takeUpAngle)]) {
+      for (var k = 0; k < 3; k++) {
+        final t = a + k * 2 * math.pi / 3;
+        final e = Offset(math.cos(t), math.sin(t)), n = Offset(-e.dy, e.dx);
+        final r0 = g.hub, r1 = g.rim;
+        final w0 = .011 * g.s, w1 = .026 * g.s;
+        final spoke = Path()
+          ..moveTo(o.dx + e.dx * r0 + n.dx * w0, o.dy + e.dy * r0 + n.dy * w0)
+          ..lineTo(o.dx + e.dx * r1 + n.dx * w1, o.dy + e.dy * r1 + n.dy * w1)
+          ..lineTo(o.dx + e.dx * r1 - n.dx * w1, o.dy + e.dy * r1 - n.dy * w1)
+          ..lineTo(o.dx + e.dx * r0 - n.dx * w0, o.dy + e.dy * r0 - n.dy * w0)
+          ..close();
+        c.drawPath(spoke, fill);
+        c.drawPath(spoke, edge);
+        // Spindle keys, between the spokes.
+        final kt = t + math.pi / 3;
+        final ke = Offset(math.cos(kt), math.sin(kt));
+        final sp = _DeckGeo.rSpindle * g.s;
+        c.drawLine(o + ke * sp, o + ke * (sp + .014 * g.s), key);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DeckSpokes o) => false;
+}
+
+/// Annotations over the reels: pack diameter callouts (in mm, as on a 7-inch reel), the
+/// reel names, the tape speed, the head and the detail title.
+class _DeckOver extends CustomPainter {
+  const _DeckOver(this.p);
+  final double p;
+
+  @override
+  void paint(Canvas c, Size size) {
+    if (size.isEmpty) return;
+    final g = _DeckGeo(size, p);
+    final call = _m(9.5, w: FontWeight.w600, c: _cy);
+    final note = _m(9, c: _ln2);
+    final lead = _stroke(_cy, .9);
+    final y = .085 * g.s; // shoulder height
+    // Ø callouts: a leader from the pack edge up to a shoulder carrying the size.
+    String dia(double r) => 'Ø${(2 * r / g.flange * 89).round()}';
+    for (final (o, r, side) in [(g.c1, g.r1, -1.0), (g.c2, g.r2, 1.0)]) {
+      final t = -math.pi / 2 + side * .42;
+      final tip = o + Offset(math.cos(t), math.sin(t)) * r;
+      final k = Offset(tip.dx + side * .05 * g.s, y);
+      final label = dia(r);
+      final tw = _textW(label, call);
+      final end = Offset(k.dx + side * (tw + 8), y);
+      c.drawLine(tip, k, lead);
+      c.drawLine(k, end, lead);
+      _arrow(c, k, tip, _cy);
+      _text(c, label, side < 0 ? end.dx : k.dx + 4, y - 3, call, bg: _bp);
+    }
+    // Reel names under the flanges; a revision triangle by the take-up, whose size keeps
+    // changing.
+    final ny = g.c1.dy + g.flange + 13;
+    _text(c, 'SUPPLY', g.c1.dx, ny, note, align: TextAlign.center);
+    _text(c, 'TAKE-UP', g.c2.dx, ny, note, align: TextAlign.center);
+    final tx = g.c2.dx + _textW('TAKE-UP', note) / 2 + 6;
+    final tri = Path()
+      ..moveTo(tx + 7, ny - 12)
+      ..lineTo(tx + 14, ny + 1)
+      ..lineTo(tx, ny + 1)
+      ..close();
+    c.drawPath(tri, _stroke(_red, 1.2));
+    _text(c, '1', tx + 7, ny - .5, _m(7.5, w: FontWeight.w700, c: _red), align: TextAlign.center);
+    // Tape speed with the direction of travel, over the bottom run.
+    final ax0 = g.g1.dx + .07 * g.s, ax1 = g.head.left - .04 * g.s, ay = g.tapeY - 9;
+    c.drawLine(Offset(ax0, ay), Offset(ax1, ay), lead);
+    _arrow(c, Offset(ax0, ay), Offset(ax1, ay), _cy, len: 6, half: 2.6);
+    _text(c, '19 cm/s', (ax0 + ax1) / 2, ay - 4, _m(9, w: FontWeight.w600, c: _cy), align: TextAlign.center);
+    // Head and capstan names.
+    _text(c, 'HEAD', g.head.center.dx, g.head.bottom + 12, note, align: TextAlign.center);
+    _text(c, 'CAPSTAN', g.capX + .045 * g.s, g.tapeY + .03 * g.s + 3, note);
+    // Detail title.
+    _text(c, 'DETAIL A · TAPE TRANSPORT', g.dx + .04 * g.s, g.s - 9, _m(9, w: FontWeight.w600));
+    _text(c, '1:2', g.dx + .96 * g.s, g.s - 9, note, align: TextAlign.right);
+  }
+
+  @override
+  bool shouldRepaint(_DeckOver o) => o.p != p;
 }
 
 // ------------------------------------------------------------------ Hotspot
