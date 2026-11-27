@@ -33,6 +33,9 @@ deskpanel-agent = "deskpanel_agent.cli:main"
 [tool.setuptools.packages.find]
 include = ["deskpanel_agent*"]
 
+[tool.setuptools.package-data]
+deskpanel_agent = ["web/*"]  # the desk page
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

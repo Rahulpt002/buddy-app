@@ -25,6 +25,9 @@ class ServerCfg(BaseModel):
     mdns: bool = True
     adb_reverse: bool = True
     adb_path: str | None = None
+    # The desk web page (a browser on this Mac): plain http on 127.0.0.1 only.
+    web: bool = True
+    web_port: int = 8766
 
 
 class CustomShortcut(BaseModel):

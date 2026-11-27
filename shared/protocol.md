@@ -33,6 +33,12 @@ agent  → {"t":"welcome","proto":1,"agent_id":"a1b2c3","agent_version":"0.1.0",
 - REST endpoints (`/api/*`) require `Authorization: Bearer <token>`; only `/api/health`
   (returns `{agent_id, proto}`) is open, used for fast reachability probes.
 
+- **Desk page** (a browser on the Mac): the agent also serves `http://127.0.0.1:8766/` (plain http,
+  loopback only) with the same `/ws` protocol. Its `hello` carries the separate `web_token`
+  (from `deskpanel-agent desk`, in the URL fragment `#k=`), not the phone's token. Requests must
+  have `Host: 127.0.0.1|localhost:<port>` (else 421) and the socket's `Origin` must be the page
+  itself (else close `4403`).
+
 ### Pairing QR
 `deskpanel://pair?v=1&id=<agent_id>&n=<hostname>&h=<ip1>,<ip2>&p=8765&t=<token>&fp=<sha256 cert fingerprint>`
 
@@ -290,3 +296,4 @@ them against the pydantic models, and the app tests parse them into the Dart mod
 | 4408 | hello timeout | reconnect |
 | 4400 | first frame was not a valid hello | reconnect |
 | 4426 | protocol unsupported | stop, show "update app/agent" |
+| 4403 | desk page socket from another origin | (browser only) |

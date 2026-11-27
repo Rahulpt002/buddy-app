@@ -23,6 +23,7 @@ from .config import home_dir
 class Identity:
     agent_id: str
     token: str
+    web_token: str = ""  # the desk web page's own key (loopback only; never the phone's)
 
     def check(self, presented: str | None) -> bool:
         if not presented:
@@ -52,9 +53,17 @@ def load_identity(reset_token: bool = False) -> Identity:
     if reset_token or not data.get("token"):
         data["token"] = secrets.token_urlsafe(32)
         changed = True
+    if reset_token or not data.get("web_token"):
+        data["web_token"] = secrets.token_urlsafe(24)
+        changed = True
     if changed:
         _write_private(path, json.dumps(data, indent=2).encode())
-    return Identity(agent_id=data["agent_id"], token=data["token"])
+    return Identity(agent_id=data["agent_id"], token=data["token"], web_token=data["web_token"])
+
+
+def desk_url(ident: Identity, port: int) -> str:
+    """The desk web page on this Mac; the key rides in the #fragment (never sent to a server)."""
+    return f"http://127.0.0.1:{port}/#k={ident.web_token}"
 
 
 def lan_ipv4s() -> list[str]:

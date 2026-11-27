@@ -1,0 +1,197 @@
+/* DeskPanel desk page: concept 16 "Liquid, desktop" (screens sample/deskpanel-concept-16-liquid-desktop.html),
+   served by the laptop agent. The concept's styles are kept as they are; the page chrome around the device
+   (size picker, bezel, fake browser bar) is dropped and #screen fills the browser window, scaled so the
+   1440x900 design grows with big monitors. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #12101f; }
+#stage { position: fixed; inset: 0; overflow: hidden; }
+#screen { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; isolation: isolate; -webkit-font-smoothing: antialiased; }
+#screen *, #screen *::before, #screen *::after { box-sizing: border-box; }
+
+:where(#screen) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: inherit; }
+:where(#screen) [role="button"] { cursor: pointer; }
+:where(#screen) :is(h1, h2, h3, p) { margin: 0; }
+:where(#screen) .ic { width: 1em; height: 1em; flex: none; display: block; }
+:where(#screen) .art { display: block; width: 100%; height: 100%; }
+:where(#screen) .num { font-variant-numeric: tabular-nums; }
+:where(#screen) .offline-banner { display: none; position: absolute; z-index: 20; }
+:where(#screen[data-conn="off"]) .offline-banner { display: block; }
+:where(#screen) .toast { position: absolute; z-index: 30; left: 50%; bottom: 16px; transform: translate(-50%, 0); white-space: nowrap; animation: toastIn .22s ease-out; }
+:where(#screen) .toast.out { opacity: 0; transform: translate(-50%, 6px); transition: opacity .3s, transform .3s; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { #screen *, #screen *::before, #screen *::after { transition: none !important; animation: none !important; } }
+
+/* ---------- Concept styles ---------- */
+/* Concept 16 — Liquid: a Liquid Glass style. Everything floats as translucent glass over a living wallpaper
+   that takes its color from the content (the album art on Music). Specular rims, edge refraction where the browser
+   supports it, a floating tab bar with a droplet that slides between tabs, Control Center style shortcuts. */
+.liquid {
+  --tx: #FFFFFF; --mu: rgba(255,255,255,.72); --fa: rgba(255,255,255,.5); --sep: rgba(255,255,255,.16); --acc: #FFFFFF; --focus: #fff;
+  --gbg: rgba(255,255,255,.10); --gblur: 22px; --gsat: 175%; --shade: rgba(8,10,20,.12);
+  --c1: #5B6CFF; --c2: #FF6FB5; --c3: #2FD3C5; --c4: #1B1640;
+  color: var(--tx); font: 500 13.5px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; letter-spacing: -.01em;
+  background: var(--c4);
+}
+.liquid[data-glass="tinted"] { --gbg: rgba(22,24,38,.46); --gblur: 28px; --shade: rgba(8,10,20,.22); }
+@media (prefers-reduced-transparency: reduce) { .liquid { --gbg: rgba(26,28,44,.9); } }
+.liquid .rnd { font-family: ui-rounded, "SF Pro Rounded", -apple-system, "Inter", sans-serif; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* Living wallpaper */
+.liquid .wall { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: var(--c4); }
+.liquid .wall i { position: absolute; border-radius: 50%; filter: blur(46px); opacity: .95; transition: background 1s ease; animation: drift 22s ease-in-out infinite alternate; }
+.liquid .wall i:nth-child(1) { width: 62%; height: 120%; left: -12%; top: -30%; background: var(--c1); }
+.liquid .wall i:nth-child(2) { width: 55%; height: 110%; right: -14%; top: -10%; background: var(--c2); animation-delay: -7s; }
+.liquid .wall i:nth-child(3) { width: 50%; height: 90%; left: 28%; bottom: -45%; background: var(--c3); animation-delay: -13s; }
+@keyframes drift { to { transform: translate(6%, 5%) scale(1.08); } }
+.liquid .wall .art { position: absolute; inset: -18%; width: 136%; height: 136%; filter: blur(40px) saturate(1.6) brightness(.85); transform: scale(1.05); }
+.liquid .wall::after { content: ""; position: absolute; inset: 0; background: var(--shade); }
+.liquid .lw { position: relative; z-index: 1; display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+/* Glass material */
+.liquid .glass { position: relative; isolation: isolate; background: var(--gbg); border-radius: var(--r, 26px);
+  -webkit-backdrop-filter: blur(var(--gblur)) saturate(var(--gsat)); backdrop-filter: blur(var(--gblur)) saturate(var(--gsat));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.16), 0 1px 2px rgba(0,0,0,.08); }
+.liquid.lens-on .glass { -webkit-backdrop-filter: url(#lens-soft) blur(var(--gblur)) saturate(var(--gsat)); backdrop-filter: url(#lens-soft) blur(var(--gblur)) saturate(var(--gsat)); }
+.liquid.lens-on .glass.clear, .liquid.lens-on .lensed { -webkit-backdrop-filter: url(#lens) blur(2px) saturate(180%); backdrop-filter: url(#lens) blur(2px) saturate(180%); }
+.liquid .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.2px; pointer-events: none; z-index: 2;
+  background: linear-gradient(140deg, rgba(255,255,255,.85), rgba(255,255,255,.12) 28%, rgba(255,255,255,0) 55%, rgba(255,255,255,.18) 78%, rgba(255,255,255,.55));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.liquid .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(120% 70% at 22% -10%, rgba(255,255,255,.22), transparent 55%), radial-gradient(80% 50% at 90% 120%, rgba(255,255,255,.08), transparent 60%); }
+
+/* Top bar */
+.liquid .top { display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px 18px; }
+.liquid .top h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; text-shadow: 0 1px 12px rgba(0,0,0,.15); }
+.liquid .top .sub { font-size: 12.5px; color: var(--mu); margin-left: 10px; }
+.liquid .top .sp, .liquid .sp { flex: 1; }
+.liquid .pill { --r: 99px; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; font-weight: 600; font-size: 13.5px; }
+.liquid .pill .ic { font-size: 16px; }
+.liquid .pill > * { position: relative; z-index: 3; }
+.liquid[data-conn="off"] .dot { background: #FF6B6B; box-shadow: 0 0 8px #FF6B6B; }
+.liquid .dot { width: 8px; height: 8px; border-radius: 50%; background: #5CF29B; box-shadow: 0 0 8px #5CF29B; }
+
+/* Content */
+.liquid .view { padding: 0 14px 72px; min-height: 0; overflow: auto; scrollbar-width: none; }
+.liquid .g { display: grid; gap: 12px; height: 100%; min-height: 0; }
+.liquid .card { padding: 12px 16px; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.liquid .card > * { position: relative; z-index: 3; }
+.liquid .lab { font-size: 12.5px; font-weight: 600; color: var(--mu); }
+.liquid .big { line-height: .92; }
+.liquid .big small { font-size: .42em; color: var(--mu); margin-left: 2px; font-weight: 600; }
+.liquid .row { display: flex; align-items: center; gap: 10px; }
+.liquid .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.liquid .mu { color: var(--mu); }
+.liquid .chart { flex: 1; min-height: 30px; }
+.liquid .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.liquid svg text { font-family: -apple-system, "Inter", sans-serif; }
+
+/* Bars, rings, sliders */
+.liquid .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.18); overflow: hidden; flex: none; }
+.liquid .bar i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); border-radius: inherit; background: var(--bc, #fff); box-shadow: 0 0 12px rgba(255,255,255,.35); transition: width .5s; }
+.liquid .ring { position: relative; display: grid; place-items: center; aspect-ratio: 1; flex: none; }
+.liquid .ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; filter: drop-shadow(0 0 6px rgba(255,255,255,.35)); }
+.liquid .ring .fill { transition: stroke-dashoffset .6s; }  /* glow on the svg: on the circle Chrome paints a faint square */
+.liquid .slider { position: relative; height: 30px; cursor: pointer; flex: none; }
+.liquid .slider .trk { position: absolute; left: 0; right: 0; top: 12px; height: 6px; border-radius: 99px; background: rgba(255,255,255,.22); overflow: hidden; }
+.liquid .slider .trk i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: #fff; transition: width .3s linear; }
+.liquid .slider .knob { --r: 99px; position: absolute; top: 2px; left: calc(var(--p, 0) * 100% - 21px); width: 42px; height: 26px; transition: left .3s linear; }
+
+/* Buttons */
+.liquid .gbtn { --r: 99px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 18px; font-weight: 650; font-size: 14px; transition: transform .25s cubic-bezier(.3, 1.6, .5, 1); }
+.liquid .gbtn > * { position: relative; z-index: 3; }
+.liquid .gbtn:active { transform: scale(1.08); }
+.liquid .gbtn.solid { background: rgba(255,255,255,.92); color: #111; }
+.liquid .gbtn[disabled] { opacity: .55; }
+.liquid .gbtn .ic { font-size: 18px; }
+.liquid .circ { --r: 50%; width: 52px; height: 52px; padding: 0; }
+.liquid .circ.xl { width: 76px; height: 76px; }
+.liquid .circ.xl .ic { font-size: 28px; }
+
+/* Segmented control */
+.liquid .seg { --r: 99px; display: inline-flex; padding: 3px; gap: 2px; }
+.liquid .seg button { position: relative; z-index: 3; height: 30px; padding: 0 16px; border-radius: 99px; font-weight: 600; font-size: 13px; color: var(--mu); }
+.liquid .seg button[aria-pressed="true"] { color: #111; background: rgba(255,255,255,.9); box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+
+/* Floating tab bar */
+.liquid .tabbar { position: absolute; z-index: 10; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; }
+.liquid .tabs { --r: 99px; display: flex; padding: 5px; position: relative; }
+.liquid .tabs button { position: relative; z-index: 3; width: 42px; height: 38px; border-radius: 99px; display: grid; place-items: center; font-size: 18px; color: rgba(255,255,255,.85); transition: color .3s; }
+.liquid .tabs button[aria-current="page"] { color: #fff; }
+.liquid .drop { --r: 99px; position: absolute; z-index: 2; left: 5px; top: 5px; width: 42px; height: 38px; background: rgba(255,255,255,.26); transition: transform .5s cubic-bezier(.3, 1.45, .45, 1), width .5s; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 14px rgba(0,0,0,.15); }
+.liquid .tabbar .conn { --r: 50%; width: 48px; height: 48px; display: grid; place-items: center; font-size: 18px; }
+.liquid .tabbar .conn > * { position: relative; z-index: 3; }
+
+/* Lists */
+.liquid .li { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 5px 0; }
+.liquid .li + .li { border-top: 1px solid var(--sep); }
+.liquid .li b { display: block; font-size: 14.5px; font-weight: 650; }
+
+/* Control Center style shortcuts */
+.liquid .cc { grid-template-columns: repeat(3, 1fr) .9fr; grid-template-rows: 1fr 1fr; }
+.liquid .tog { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.liquid .tog .c { --r: 50%; width: 72px; height: 72px; display: grid; place-items: center; font-size: 28px; transition: transform .25s cubic-bezier(.3, 1.6, .5, 1), background .25s; }
+.liquid .tog .c > * { position: relative; z-index: 3; }
+.liquid .tog:active .c { transform: scale(1.1); }
+.liquid .tog.on .c { background: rgba(255,255,255,.95); color: #E5484D; }
+.liquid .tog small { font-size: 11.5px; color: var(--mu); font-weight: 500; margin-top: -4px; }
+.liquid .vol { --r: 30px; grid-column: 4; grid-row: 1 / 3; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+.liquid .vol .lvl { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--p, 0) * 100%); background: rgba(255,255,255,.9); transition: height .35s cubic-bezier(.3, 1.3, .5, 1); z-index: 1; border-radius: 0 0 30px 30px; }
+.liquid .vol button { position: relative; z-index: 3; flex: 1; display: grid; place-items: center; font-size: 22px; color: #fff; mix-blend-mode: difference; }
+.liquid .vol .vl { position: absolute; z-index: 3; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-weight: 700; font-size: 15px; pointer-events: none; mix-blend-mode: difference; }
+
+/* Offline + toast */
+.liquid .offline-banner { --r: 18px; top: 54px; left: 50%; transform: translateX(-50%); padding: 9px 16px; max-width: 80%; text-align: center; font-size: 12.5px; border-radius: 18px; background: rgba(229,72,77,.55); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
+.liquid[data-conn="off"] .wall { filter: grayscale(.8); }
+.liquid .toast { bottom: 72px; padding: 9px 18px; border-radius: 99px; font-weight: 650; font-size: 13.5px; background: rgba(255,255,255,.16); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 8px 24px rgba(0,0,0,.2); }
+/* Concept 16, desktop: the same Liquid Glass app as a web page on a second monitor.
+   A floating glass sidebar replaces the tab bar, Overview shows every widget at once. */
+.liquid.desk { font-size: 14.5px; }
+
+
+.desk .app { position: relative; z-index: 1; display: grid; grid-template-columns: 236px 1fr; height: 100%; }
+.desk .lw { display: contents; }
+
+/* Floating glass sidebar */
+.desk .side { --r: 28px; margin: 14px; display: flex; flex-direction: column; padding: 14px 10px; min-height: 0; }
+.desk .side > * { position: relative; z-index: 3; }
+.desk .side .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 14px; font-size: 18px; font-weight: 750; letter-spacing: -.02em; }
+.desk .side .brand i { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(135deg, #fff, rgba(255,255,255,.4)); box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(0,0,0,.2); }
+.desk .side .items { position: relative; display: flex; flex-direction: column; }
+.desk .side .items button { position: relative; z-index: 3; display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; height: 40px; padding: 0 12px; border-radius: 14px; font-weight: 600; font-size: 14px; text-align: left; color: rgba(255,255,255,.88); }
+.desk .side .items button .ic { font-size: 18px; }
+.desk .side .items button span:last-child { font-size: 12.5px; font-weight: 600; color: var(--mu); font-variant-numeric: tabular-nums; }
+.desk .side .items button[aria-current="page"] { color: #fff; }
+.desk .side .vdrop { --r: 14px; position: absolute; z-index: 2; left: 0; right: 0; top: 0; height: 40px; background: rgba(255,255,255,.24); transition: transform .5s cubic-bezier(.3, 1.4, .45, 1); box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 14px rgba(0,0,0,.14); }
+.desk .side .foot { margin-top: auto; padding: 12px; border-radius: 18px; background: rgba(255,255,255,.08); font-size: 12.5px; color: var(--mu); text-align: left; }
+.desk .side .foot b { display: flex; align-items: center; gap: 7px; color: #fff; font-size: 13.5px; margin-bottom: 3px; }
+
+/* Main column */
+.desk .mainc { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; padding: 0 20px 18px 4px; }
+.desk .top { padding: 18px 0 14px; }
+.desk .top h1 { font-size: 32px; }
+.desk .view { padding: 0; }
+.desk .g { gap: 16px; }
+.desk .card { padding: 16px 20px; }
+.desk .lab { font-size: 13.5px; }
+.desk .toast { bottom: 24px; left: calc(50% + 118px); }
+.desk .offline-banner { top: 64px; left: calc(50% + 118px); }
+.desk .pill, .desk .gbtn { white-space: nowrap; }
+.desk .big small { white-space: nowrap; }
+
+
+/* ---------- Additions for the live page ---------- */
+.liquid .view { scrollbar-width: none; }
+.liquid .view::-webkit-scrollbar { display: none; }
+.liquid img.art { object-fit: cover; }
+.liquid .note { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; height: 100%; color: var(--mu); }
+.liquid .note b { color: #fff; font-size: 16px; }
+.liquid .note code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff; background: rgba(255,255,255,.12); padding: 2px 6px; border-radius: 6px; }
+.liquid .gin { --r: 99px; height: 40px; padding: 0 16px; border: 0; outline: none; color: #fff; font: inherit; font-weight: 600; background: var(--gbg); border-radius: 99px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(255,255,255,.08); }
+.liquid .gin::placeholder { color: var(--fa); }
+.liquid .gin:focus-visible, .liquid button:focus-visible, .liquid [role="button"]:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.liquid .gate { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; }
+.liquid .gate .card { max-width: 520px; gap: 10px; padding: 28px 32px; }
+.liquid .gate h2 { font-size: 26px; font-weight: 750; letter-spacing: -.02em; }
+.liquid .side .items button span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.liquid .side .foot { cursor: default; }
+.liquid .badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: #FF5A5F; color: #fff; font-size: 11.5px; font-weight: 700; }

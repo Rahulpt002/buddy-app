@@ -27,13 +27,43 @@ def _show_pairing(port: int, tls: bool, open_png: bool) -> None:
         subprocess.run(["open", str(png)], check=False)
 
 
+class _All:
+    """Lets the tray stop every server through one `should_exit`."""
+
+    def __init__(self, servers: list) -> None:
+        self._servers = servers
+
+    @property
+    def should_exit(self) -> bool:
+        return all(s.should_exit for s in self._servers)
+
+    @should_exit.setter
+    def should_exit(self, v: bool) -> None:
+        for s in self._servers:
+            s.should_exit = v
+
+
+def _open_desk() -> None:
+    from .pairing import desk_url
+
+    cfg = load_config()
+    if not cfg.server.web:
+        print("The desk page is turned off ([server] web = false in config.toml).")
+        return
+    url = desk_url(load_identity(), cfg.server.web_port)
+    print("DeskPanel desk page (keep this link private; it opens your dashboard):")
+    print(f"  {url}")
+    if sys.platform == "darwin":
+        subprocess.run(["open", url], check=False)
+
+
 async def _serve(args: argparse.Namespace, holder: dict | None = None) -> None:
     import uvicorn
 
     from .adb import AdbReverse
     from .discovery import Advertiser
     from .hub import Hub
-    from .server import create_app
+    from .server import create_app, create_web_app
 
     cfg = load_config()
     port = args.port or cfg.server.port
@@ -64,11 +94,21 @@ async def _serve(args: argparse.Namespace, holder: dict | None = None) -> None:
         ws_ping_interval=None,  # app-level ping/pong handles liveness
     ))
     server.install_signal_handlers = lambda: None  # we handle signals below
+    servers = [server]
+    web_port = getattr(args, "web_port", None) or cfg.server.web_port
+    if cfg.server.web:
+        web = uvicorn.Server(uvicorn.Config(
+            create_web_app(hub, ident, web_port), host="127.0.0.1",
+            port=web_port, log_level="warning", ws_ping_interval=None))
+        web.install_signal_handlers = lambda: None
+        servers.append(web)
+        log.info("Desk page: run `deskpanel-agent desk` to open it (http://127.0.0.1:%d/)", web_port)
 
     extras = []
-    if cfg.server.mdns:
+    # Fake data stays on this Mac: no mDNS and no adb reverse to the phone in mock mode.
+    if cfg.server.mdns and not args.mock:
         extras.append(Advertiser(ident.agent_id, port, tls))
-    if cfg.server.adb_reverse:
+    if cfg.server.adb_reverse and not args.mock:
         extras.append(AdbReverse(port, cfg.server.adb_path))
     for e in extras:
         try:
@@ -83,10 +123,10 @@ async def _serve(args: argparse.Namespace, holder: dict | None = None) -> None:
 
     loop = asyncio.get_running_loop()
     if holder is not None:  # --tray: the menu bar (main thread) stops us through these
-        holder.update(server=server, loop=loop)
+        holder.update(server=_All(servers), loop=loop)
     else:
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
+            loop.add_signal_handler(sig, lambda: [setattr(s, "should_exit", True) for s in servers])
     if getattr(args, "tray", False) or getattr(args, "write_qr", False):
         # Keep the pairing image ready for "Show pairing QR code" (tray or a host app's menu).
         ident = load_identity()
@@ -100,8 +140,15 @@ async def _serve(args: argparse.Namespace, holder: dict | None = None) -> None:
                 await asyncio.sleep(2)
 
         asyncio.create_task(count_clients())
+    async def serve(s) -> None:  # noqa: ANN001
+        try:
+            await s.serve()
+        finally:  # one stopping (or failing to bind) stops the other too
+            for o in servers:
+                o.should_exit = True
+
     try:
-        await server.serve()
+        await asyncio.gather(*(serve(s) for s in servers))
     finally:
         for e in extras:
             await e.stop()
@@ -118,6 +165,7 @@ def main(argv: list[str] | None = None) -> None:
     for p in (ap, run):
         p.add_argument("--mock", action="store_true", help="emit fake data for every topic")
         p.add_argument("--port", type=int, default=None)
+        p.add_argument("--web-port", type=int, default=None, help="desk page port (default 8766)")
         p.add_argument("--no-tls", action="store_true", help="plain ws:// (debugging only)")
         p.add_argument("--qr", action="store_true", help="print the pairing QR on start")
         p.add_argument("--tray", action="store_true", help="show a menu-bar icon (macOS)")
@@ -133,6 +181,7 @@ def main(argv: list[str] | None = None) -> None:
     hl = sub.add_parser("hotspot-login", help="sign in to your Hotspot Monitor Server (for the Hotspot page)")
     hl.add_argument("--server", default=None, help="https:// address of the Server")
 
+    sub.add_parser("desk", help="open the desk page (the dashboard in a browser on this Mac)")
     pair = sub.add_parser("pair", help="show the pairing QR code")
     pair.add_argument("--reset", action="store_true", help="rotate the token (all phones must re-pair)")
     pair.add_argument("--open", action="store_true", help="open the QR image in Preview")
@@ -165,6 +214,9 @@ def main(argv: list[str] | None = None) -> None:
 
         raise SystemExit(login(args.server))
 
+    if args.cmd == "desk":
+        _open_desk()
+        return
     if args.cmd == "pair":
         if args.reset:
             load_identity(reset_token=True)

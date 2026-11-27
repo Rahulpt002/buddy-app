@@ -18,6 +18,10 @@ and page layouts: **Slate** (rounded cards, icon rail; matches the reference scr
 **Expressive**, **Sketch**, **Diorama** and **Liquid** (Liquid Glass over a living wallpaper, with
 a Clear / Tinted switch in its top bar) (concepts in `screens sample/`).
 
+There's also a **desk page**: the same dashboard in the Liquid design, laid out for a computer
+monitor (glass sidebar, everything on one Overview screen), opened in any browser on the Mac. See
+[Desk page](#desk-page-the-dashboard-in-a-browser).
+
 > Status: all 7 build steps done. Every page reads real data from the Mac or the phone;
 > GitHub, Slack and Hotspot show a setup message until they're set up (section 8).
 > The Printer page was replaced by Hotspot (the Bambu collector code is kept but not used). Every page also runs on
@@ -264,6 +268,29 @@ Safari, Arc, Brave and Edge. The first time, macOS asks to let Remote Trackpad c
 browser (Automation). For the same moment and the pause, turn on **Allow JavaScript from Apple
 Events** once (Chrome: **View → Developer**; Safari: **Develop** menu); without it the video
 starts from the beginning.
+
+### Desk page (the dashboard in a browser)
+The agent also serves the dashboard as a web page for a monitor (concept
+`deskpanel-concept-16-liquid-desktop.html`): a floating glass sidebar with each page's live value,
+an Overview that fits every widget on one screen, and the same pages as the phone (System, Claude,
+Calendar, Weather, Music, Hotspot, Timer, Slack, GitHub, Controls). Open it with
+
+```bash
+deskpanel-agent desk        # opens http://127.0.0.1:8766/#k=… in your browser
+```
+
+Bookmark it after that; the browser remembers the key and the address is just
+`http://127.0.0.1:8766/`. Keys 1–9 and 0 switch pages. It works best in Chrome, Edge or Arc
+(their glass edges refract like the concept); Safari and Firefox show the same page without the
+refraction.
+
+- **Only this Mac can open it.** It listens on 127.0.0.1 (plain http, no certificate warning),
+  answers only requests addressed to 127.0.0.1/localhost, accepts sockets only from its own page,
+  and uses its own key (`web_token` in `~/.deskpanel/pairing.json`), never the phone's pairing key.
+  `deskpanel-agent pair --reset` rotates both.
+- **Weather and Timer run in the browser**: pick your city on the Weather page (Open-Meteo, the
+  same source as the phone); the timer keeps running across reloads.
+- Settings: `[server] web = false` turns it off, `web_port = 8766` moves it.
 
 ## 9. Running at login
 
