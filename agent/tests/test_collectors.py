@@ -114,3 +114,54 @@ async def test_volume_set_clamps_and_rejects_bad_values(tmp_path):
     assert b.set == [57, 100]
     with pytest.raises(ActionError):
         await c.set_volume({"pct": "loud"}, None)
+
+
+async def test_media_art_retried_until_the_cover_arrives(monkeypatch):
+    """Streamed Apple Music songs often have no cover for a moment after a track change."""
+    import io as _io
+
+    from PIL import Image
+
+    from deskpanel_agent.collectors import media
+    from deskpanel_agent.collectors.media import MediaBackend, MediaCollector, Track
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+
+    class Late(MediaBackend):
+        calls = 0
+
+        async def artwork(self, t):
+            self.calls += 1
+            return buf.getvalue() if self.calls >= 3 else None
+
+    monkeypatch.setattr(media, "ART_RETRY_EVERY_S", 0)
+    c = MediaCollector(Late())
+    sent = []
+    c.publish = lambda topic, data: sent.append((topic, data))
+    t = Track(app="Music", playing=True, title="S", artist="A", album="L", duration_ms=1000,
+              position_ms=0, art_url=None, track_id="Music:X")
+    for _ in range(5):
+        await c._update(t)
+    arts = [d for topic, d in sent if topic == "media.art"]
+    assert arts[0].b64 is None and arts[-1].b64 and arts[-1].art_id == arts[0].art_id
+    assert len(arts) == 2 and c.backend.calls == 3  # stops asking once it has the cover
+
+
+def test_catalog_art_url_prefers_the_playing_album():
+    from deskpanel_agent.collectors.media import Track, catalog_art_url
+
+    t = Track(app="Music", playing=True, title="Aaftaab", artist="The Local Train", album="Vaaqif",
+              duration_ms=1, position_ms=0, art_url=None, track_id="Music:1")
+    results = [
+        {"trackName": "Aaftaab (Live)", "artistName": "The Local Train", "collectionName": "Vaaqif",
+         "artworkUrl100": "https://x/live/100x100bb.jpg"},
+        {"trackName": "Aaftaab", "artistName": "The Local Train", "collectionName": "Aaftaab - Single",
+         "artworkUrl100": "https://x/single/100x100bb.jpg"},
+        {"trackName": "Aaftaab", "artistName": "The Local Train", "collectionName": "Vaaqif",
+         "artworkUrl100": "https://x/album/100x100bb.jpg"},
+    ]
+    assert catalog_art_url(results, t) == "https://x/album/600x600bb.jpg"
+    assert catalog_art_url(results[1:2], t) == "https://x/single/600x600bb.jpg"  # any same song
+    assert catalog_art_url([{"trackName": "Other", "artistName": "Someone",
+                             "artworkUrl100": "https://x/100x100bb.jpg"}], t) is None

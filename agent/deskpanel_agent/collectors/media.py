@@ -23,6 +23,8 @@ from .base import BaseProvider, osascript
 log = logging.getLogger(__name__)
 
 SEP = "␟"  # unit separator unlikely to appear in titles
+ART_RETRY_S = 30  # how long to keep asking for a cover that isn't there yet
+ART_RETRY_EVERY_S = 2
 
 
 @dataclass
@@ -105,6 +107,9 @@ def pick(tracks: list[Track]) -> Track | None:
 class MacMedia(MediaBackend):
     _last_err: str | None = None
 
+    def __init__(self) -> None:
+        self._catalog: dict[str, bytes | None] = {}  # track id -> catalogue cover (or None)
+
     async def now_playing(self) -> Track | None:
         rc, out = await osascript(_QUERY, timeout=4)
         if rc != 0:
@@ -154,7 +159,46 @@ return "ok"'''
             rc, out = await osascript(script)
             if rc == 0 and out.strip() == "ok" and path.exists():
                 return path.read_bytes()
+            # Some streamed Apple Music songs never get artwork in the app's scripting
+            # interface; look the cover up in Apple's public catalogue instead.
+            return await self._catalog_art(t)
         return None
+
+    async def _catalog_art(self, t: Track) -> bytes | None:
+        if t.track_id in self._catalog:
+            return self._catalog[t.track_id]
+        import httpx
+
+        art = None
+        try:
+            async with httpx.AsyncClient(timeout=8) as c:
+                r = await c.get("https://itunes.apple.com/search", params={
+                    "term": f"{t.artist} {t.title}", "entity": "song", "limit": 10})
+                url = catalog_art_url(r.json().get("results", []), t) if r.status_code == 200 else None
+                if url:
+                    img = await c.get(url)
+                    art = img.content if img.status_code == 200 else None
+        except Exception:  # noqa: BLE001
+            log.debug("catalogue artwork lookup failed", exc_info=True)
+            return None  # network trouble: try again on the next retry
+        if len(self._catalog) > 200:
+            self._catalog.clear()
+        self._catalog[t.track_id] = art
+        return art
+
+
+def _norm(s: str | None) -> str:
+    return "".join(ch for ch in (s or "").casefold() if ch.isalnum())
+
+
+def catalog_art_url(results: list[dict], t: Track, size: int = 600) -> str | None:
+    """Best cover from iTunes Search results: same title and artist, same album if any."""
+    same = [r for r in results if _norm(r.get("trackName")) == _norm(t.title)
+            and _norm(t.artist) in _norm(r.get("artistName")) and r.get("artworkUrl100")]
+    if not same:
+        return None
+    best = next((r for r in same if _norm(r.get("collectionName")) == _norm(t.album)), same[0])
+    return best["artworkUrl100"].replace("100x100bb", f"{size}x{size}bb")
 
 
 def to_jpeg_b64(raw: bytes, size: int = 512) -> str | None:
@@ -178,6 +222,9 @@ class MediaCollector(BaseProvider):
         self.backend = backend or (MacMedia() if platform.system() == "Darwin" else MediaBackend())
         self.track: Track | None = None
         self.art_id: str | None = None
+        self._art_ok = False  # the current track's cover has been sent
+        self._art_retry_until = 0.0  # keep asking until then while it's missing
+        self._art_next = 0.0
         self._last_pub = 0.0
         self._kick = asyncio.Event()
         self.actions = {
@@ -219,16 +266,33 @@ class MediaCollector(BaseProvider):
             self._last_pub = loop.time()
             self.publish("media", self._data(t))
         new_art = f"art-{hashlib.sha1(t.track_id.encode()).hexdigest()[:12]}" if t else None
+        now = loop.time()
         if new_art != self.art_id:
-            self.art_id = new_art
-            b64 = None
-            if t:
-                try:
-                    raw = await self.backend.artwork(t)
-                    b64 = to_jpeg_b64(raw) if raw else None
-                except Exception:  # noqa: BLE001
-                    log.debug("artwork fetch failed", exc_info=True)
+            self.art_id, self._art_ok = new_art, False
+            self._art_retry_until, self._art_next = now + ART_RETRY_S, now
+            if not t:
+                self.publish("media.art", MediaArt(art_id=None, b64=None))
+                return
+            b64 = await self._fetch_art(t)
+            self._art_ok = b64 is not None
             self.publish("media.art", MediaArt(art_id=new_art, b64=b64))
+            self._art_next = now + ART_RETRY_EVERY_S
+        elif t and not self._art_ok and now < self._art_retry_until and now >= self._art_next:
+            # Streamed Apple Music songs often have no cover yet in the first second after a
+            # track change (it is still downloading); ask again until it turns up.
+            self._art_next = now + ART_RETRY_EVERY_S
+            b64 = await self._fetch_art(t)
+            if b64 is not None:
+                self._art_ok = True
+                self.publish("media.art", MediaArt(art_id=new_art, b64=b64))
+
+    async def _fetch_art(self, t: Track) -> str | None:
+        try:
+            raw = await self.backend.artwork(t)
+            return to_jpeg_b64(raw) if raw else None
+        except Exception:  # noqa: BLE001
+            log.debug("artwork fetch failed", exc_info=True)
+            return None
 
     def _expected(self, t: Track) -> int:
         # Position we'd expect now if it kept playing since the last publish.
